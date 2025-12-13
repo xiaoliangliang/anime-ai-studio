@@ -1,0 +1,3827 @@
+{
+  "openapi": "3.1.0",
+  "servers": [
+    {
+      "url": "https://gen.pollinations.ai"
+    }
+  ],
+  "info": {
+    "title": "Pollinations.AI API",
+    "description": "Documentation for `gen.pollinations.ai` - the Pollinations.AI API gateway.\n\n[📝 Edit docs](https://github.com/pollinations/pollinations/edit/master/enter.pollinations.ai/src/routes/docs.ts)\n\n## Quick Start\n\nGet your API key at https://enter.pollinations.ai\n\n### Image Generation\n```bash\ncurl 'https://gen.pollinations.ai/image/a%20cat?model=flux' \\\n  -H 'Authorization: Bearer YOUR_API_KEY'\n```\n\n### Text Generation\n```bash\ncurl 'https://gen.pollinations.ai/v1/chat/completions' \\\n  -H 'Authorization: Bearer YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"model\": \"openai\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'\n```\n\n### Simple Text Endpoint\n```bash\ncurl 'https://gen.pollinations.ai/text/hello?key=YOUR_API_KEY'\n```\n\n### Streaming\n```bash\ncurl 'https://gen.pollinations.ai/v1/chat/completions' \\\n  -H 'Authorization: Bearer YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"model\": \"openai\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a poem\"}], \"stream\": true}' \\\n  --no-buffer\n```\n\n### Model Discovery\n**Always check available models before testing:**\n\n- **Image models:** [/image/models](https://gen.pollinations.ai/image/models)\n- **Text models:** [/v1/models](https://gen.pollinations.ai/v1/models)\n\n## Authentication\n\n**Two key types:**\n- **Publishable Keys (`pk_`):** Client-side safe, IP rate-limited (3 req/burst, 1/15sec refill)\n- **Secret Keys (`sk_`):** Server-side only, no rate limits, can spend Pollen\n\n**Auth methods:**\n1. Header: `Authorization: Bearer YOUR_API_KEY`\n2. Query param: `?key=YOUR_API_KEY`",
+    "version": "0.3.0"
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API Key",
+        "description": "API key from enter.pollinations.ai dashboard"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "gen.pollinations.ai",
+      "description": "Generate text, images, and videos using AI models"
+    }
+  ],
+  "paths": {
+    "/polar/customer/state": {},
+    "/polar/customer/events": {},
+    "/polar/customer/portal": {},
+    "/polar/checkout/{slug}": {},
+    "/tiers/view": {},
+    "/tiers/activate": {},
+    "/v1/models": {
+      "get": {
+        "operationId": "getGenerateV1Models",
+        "tags": [
+          "gen.pollinations.ai"
+        ],
+        "description": "Get available text models (OpenAI-compatible).",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Array of model descriptions for each available model.",
+                  "type": "array",
+                  "items": {
+                    "description": "Model description and capabilities",
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "tier": {
+                        "type": "string",
+                        "enum": [
+                          "anonymous",
+                          "seed",
+                          "flower",
+                          "nectar"
+                        ]
+                      },
+                      "community": {
+                        "type": "boolean"
+                      },
+                      "aliases": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "input_modalities": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "text",
+                            "image",
+                            "audio"
+                          ]
+                        }
+                      },
+                      "output_modalities": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "text",
+                            "image",
+                            "audio"
+                          ]
+                        }
+                      },
+                      "tools": {
+                        "type": "boolean"
+                      },
+                      "vision": {
+                        "type": "boolean"
+                      },
+                      "audio": {
+                        "type": "boolean"
+                      },
+                      "maxInputChars": {
+                        "type": "number"
+                      },
+                      "reasoning": {
+                        "type": "boolean"
+                      },
+                      "voices": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "uncensored": {
+                        "type": "boolean"
+                      },
+                      "supportsSystemMessages": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "description",
+                      "tier",
+                      "community",
+                      "input_modalities",
+                      "output_modalities",
+                      "tools",
+                      "vision",
+                      "audio"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Oh snap, something went wrong on our end. We're on it!",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "number",
+                      "const": 500
+                    },
+                    "success": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "const": "INTERNAL_ERROR"
+                        },
+                        "message": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Oh snap, something went wrong on our end. We're on it!"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "timestamp": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "stack": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ]
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "cause": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "timestamp",
+                        "details"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "success",
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/image/models": {
+      "get": {
+        "operationId": "getGenerateImageModels",
+        "tags": [
+          "gen.pollinations.ai"
+        ],
+        "description": "Get a list of available image generation models with pricing, capabilities, and metadata. Use this endpoint to discover which models are available and their costs before making generation requests. Response includes `aliases` (alternative names you can use), pricing per image, and supported modalities.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "List of models with pricing and metadata",
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "aliases": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "pricing": {
+                        "type": "object",
+                        "properties": {
+                          "input_token_price": {
+                            "type": "number"
+                          },
+                          "output_token_price": {
+                            "type": "number"
+                          },
+                          "cached_token_price": {
+                            "type": "number"
+                          },
+                          "image_price": {
+                            "type": "number"
+                          },
+                          "audio_input_price": {
+                            "type": "number"
+                          },
+                          "audio_output_price": {
+                            "type": "number"
+                          },
+                          "currency": {
+                            "type": "string",
+                            "const": "pollen"
+                          }
+                        },
+                        "required": [
+                          "currency"
+                        ]
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "input_modalities": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "output_modalities": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "tools": {
+                        "type": "boolean"
+                      },
+                      "reasoning": {
+                        "type": "boolean"
+                      },
+                      "context_window": {
+                        "type": "number"
+                      },
+                      "voices": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "is_specialized": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "aliases",
+                      "pricing"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Oh snap, something went wrong on our end. We're on it!",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "number",
+                      "const": 500
+                    },
+                    "success": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "const": "INTERNAL_ERROR"
+                        },
+                        "message": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Oh snap, something went wrong on our end. We're on it!"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "timestamp": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "stack": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ]
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "cause": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "timestamp",
+                        "details"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "success",
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/text/models": {
+      "get": {
+        "operationId": "getGenerateTextModels",
+        "tags": [
+          "gen.pollinations.ai"
+        ],
+        "description": "Get a list of available text generation models with pricing, capabilities, and metadata. Use this endpoint to discover which models are available and their costs before making generation requests. Response includes `aliases` (alternative names you can use), token pricing, supported modalities (text, image, audio), and capabilities (tools, reasoning).",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "List of models with pricing and metadata",
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "aliases": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "pricing": {
+                        "type": "object",
+                        "properties": {
+                          "input_token_price": {
+                            "type": "number"
+                          },
+                          "output_token_price": {
+                            "type": "number"
+                          },
+                          "cached_token_price": {
+                            "type": "number"
+                          },
+                          "image_price": {
+                            "type": "number"
+                          },
+                          "audio_input_price": {
+                            "type": "number"
+                          },
+                          "audio_output_price": {
+                            "type": "number"
+                          },
+                          "currency": {
+                            "type": "string",
+                            "const": "pollen"
+                          }
+                        },
+                        "required": [
+                          "currency"
+                        ]
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "input_modalities": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "output_modalities": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "tools": {
+                        "type": "boolean"
+                      },
+                      "reasoning": {
+                        "type": "boolean"
+                      },
+                      "context_window": {
+                        "type": "number"
+                      },
+                      "voices": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "is_specialized": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "aliases",
+                      "pricing"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Oh snap, something went wrong on our end. We're on it!",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "number",
+                      "const": 500
+                    },
+                    "success": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "const": "INTERNAL_ERROR"
+                        },
+                        "message": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Oh snap, something went wrong on our end. We're on it!"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "timestamp": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "stack": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ]
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "cause": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "timestamp",
+                        "details"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "success",
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "operationId": "postGenerateV1ChatCompletions",
+        "tags": [
+          "gen.pollinations.ai"
+        ],
+        "description": "OpenAI-compatible chat completions endpoint.\n\n**Legacy endpoint:** `/openai` (deprecated, use `/v1/chat/completions` instead)\n\n**Authentication (Secret Keys Only):**\n\nInclude your API key in the `Authorization` header as a Bearer token:\n\n`Authorization: Bearer YOUR_API_KEY`\n\nAPI keys can be created from your dashboard at enter.pollinations.ai.\nSecret keys provide the best rate limits and can spend Pollen.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "finish_reason": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "index": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "message": {
+                            "type": "object",
+                            "properties": {
+                              "content": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "tool_calls": {
+                                "anyOf": [
+                                  {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string"
+                                        },
+                                        "type": {
+                                          "type": "string",
+                                          "const": "function"
+                                        },
+                                        "function": {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "arguments": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "arguments"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "type",
+                                        "function"
+                                      ]
+                                    }
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "role": {
+                                "type": "string",
+                                "const": "assistant"
+                              },
+                              "function_call": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "arguments": {
+                                        "type": "string"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "arguments",
+                                      "name"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "content_blocks": {
+                                "anyOf": [
+                                  {
+                                    "type": "array",
+                                    "items": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string",
+                                              "const": "text"
+                                            },
+                                            "text": {
+                                              "type": "string"
+                                            },
+                                            "cache_control": {
+                                              "type": "object",
+                                              "properties": {
+                                                "type": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "ephemeral"
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "type"
+                                              ]
+                                            }
+                                          },
+                                          "required": [
+                                            "type",
+                                            "text"
+                                          ]
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string",
+                                              "const": "thinking"
+                                            },
+                                            "thinking": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "type",
+                                            "thinking"
+                                          ]
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "type": {
+                                              "type": "string",
+                                              "const": "redacted_thinking"
+                                            },
+                                            "data": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "type",
+                                            "data"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "audio": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "transcript": {
+                                        "type": "string"
+                                      },
+                                      "data": {
+                                        "type": "string"
+                                      },
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "expires_at": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      }
+                                    },
+                                    "required": [
+                                      "transcript",
+                                      "data"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "reasoning_content": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "role"
+                            ]
+                          },
+                          "logprobs": {
+                            "anyOf": [
+                              {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "content": {
+                                        "anyOf": [
+                                          {
+                                            "type": "array",
+                                            "items": {
+                                              "type": "object",
+                                              "properties": {
+                                                "token": {
+                                                  "type": "string"
+                                                },
+                                                "logprob": {
+                                                  "type": "number"
+                                                },
+                                                "bytes": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "array",
+                                                      "items": {
+                                                        "type": "integer",
+                                                        "minimum": -9007199254740991,
+                                                        "maximum": 9007199254740991
+                                                      }
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                },
+                                                "top_logprobs": {
+                                                  "type": "array",
+                                                  "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "token": {
+                                                        "type": "string"
+                                                      },
+                                                      "logprob": {
+                                                        "type": "number"
+                                                      },
+                                                      "bytes": {
+                                                        "anyOf": [
+                                                          {
+                                                            "type": "array",
+                                                            "items": {
+                                                              "type": "integer",
+                                                              "minimum": -9007199254740991,
+                                                              "maximum": 9007199254740991
+                                                            }
+                                                          },
+                                                          {
+                                                            "type": "null"
+                                                          }
+                                                        ]
+                                                      }
+                                                    },
+                                                    "required": [
+                                                      "token",
+                                                      "logprob",
+                                                      "bytes"
+                                                    ]
+                                                  }
+                                                }
+                                              },
+                                              "required": [
+                                                "token",
+                                                "logprob",
+                                                "bytes",
+                                                "top_logprobs"
+                                              ]
+                                            }
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "content"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "content_filter_results": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "hate": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "severity": {
+                                        "type": "string",
+                                        "enum": [
+                                          "safe",
+                                          "low",
+                                          "medium",
+                                          "high"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "severity"
+                                    ]
+                                  },
+                                  "self_harm": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "severity": {
+                                        "type": "string",
+                                        "enum": [
+                                          "safe",
+                                          "low",
+                                          "medium",
+                                          "high"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "severity"
+                                    ]
+                                  },
+                                  "sexual": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "severity": {
+                                        "type": "string",
+                                        "enum": [
+                                          "safe",
+                                          "low",
+                                          "medium",
+                                          "high"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "severity"
+                                    ]
+                                  },
+                                  "violence": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "severity": {
+                                        "type": "string",
+                                        "enum": [
+                                          "safe",
+                                          "low",
+                                          "medium",
+                                          "high"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "severity"
+                                    ]
+                                  },
+                                  "jailbreak": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "detected": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "detected"
+                                    ]
+                                  },
+                                  "protected_material_text": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "detected": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "detected"
+                                    ]
+                                  },
+                                  "protected_material_code": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "detected": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "detected"
+                                    ]
+                                  }
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "prompt_filter_results": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "prompt_index": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "content_filter_results": {
+                                "type": "object",
+                                "properties": {
+                                  "hate": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "severity": {
+                                        "type": "string",
+                                        "enum": [
+                                          "safe",
+                                          "low",
+                                          "medium",
+                                          "high"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "severity"
+                                    ]
+                                  },
+                                  "self_harm": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "severity": {
+                                        "type": "string",
+                                        "enum": [
+                                          "safe",
+                                          "low",
+                                          "medium",
+                                          "high"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "severity"
+                                    ]
+                                  },
+                                  "sexual": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "severity": {
+                                        "type": "string",
+                                        "enum": [
+                                          "safe",
+                                          "low",
+                                          "medium",
+                                          "high"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "severity"
+                                    ]
+                                  },
+                                  "violence": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "severity": {
+                                        "type": "string",
+                                        "enum": [
+                                          "safe",
+                                          "low",
+                                          "medium",
+                                          "high"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "severity"
+                                    ]
+                                  },
+                                  "jailbreak": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "detected": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "detected"
+                                    ]
+                                  },
+                                  "protected_material_text": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "detected": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "detected"
+                                    ]
+                                  },
+                                  "protected_material_code": {
+                                    "type": "object",
+                                    "properties": {
+                                      "filtered": {
+                                        "type": "boolean"
+                                      },
+                                      "detected": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": [
+                                      "filtered",
+                                      "detected"
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "required": [
+                              "prompt_index"
+                            ]
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "created": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "system_fingerprint": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "object": {
+                      "type": "string",
+                      "const": "chat.completion"
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "completion_tokens": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "completion_tokens_details": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "accepted_prediction_tokens": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "audio_tokens": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "reasoning_tokens": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "rejected_prediction_tokens": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "prompt_tokens": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "prompt_tokens_details": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "audio_tokens": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "cached_tokens": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "total_tokens": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "completion_tokens",
+                        "prompt_tokens",
+                        "total_tokens"
+                      ]
+                    },
+                    "user_tier": {
+                      "type": "string",
+                      "enum": [
+                        "anonymous",
+                        "seed",
+                        "flower",
+                        "nectar"
+                      ]
+                    },
+                    "citations": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "choices",
+                    "created",
+                    "model",
+                    "object",
+                    "usage"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Something was wrong with the input data, check the details for more info.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "number",
+                      "const": 400
+                    },
+                    "success": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "const": "BAD_REQUEST"
+                        },
+                        "message": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Something was wrong with the input data, check the details for more info."
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "timestamp": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "stack": {
+                              "type": "string"
+                            },
+                            "formErrors": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "fieldErrors": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "formErrors",
+                            "fieldErrors"
+                          ]
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "cause": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "timestamp",
+                        "details"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "success",
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "You need to authenticate by providing a session cookie or Authorization header (Bearer token).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "number",
+                      "const": 401
+                    },
+                    "success": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "const": "UNAUTHORIZED"
+                        },
+                        "message": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "You need to authenticate by providing a session cookie or Authorization header (Bearer token)."
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "timestamp": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "stack": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ]
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "cause": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "timestamp",
+                        "details"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "success",
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Oh snap, something went wrong on our end. We're on it!",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "number",
+                      "const": 500
+                    },
+                    "success": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "const": "INTERNAL_ERROR"
+                        },
+                        "message": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Oh snap, something went wrong on our end. We're on it!"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "timestamp": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "stack": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ]
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "cause": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "timestamp",
+                        "details"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "success",
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "messages": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "content": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "items": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "text"
+                                          },
+                                          "text": {
+                                            "type": "string"
+                                          },
+                                          "cache_control": {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "ephemeral"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "text"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "image_url"
+                                          },
+                                          "image_url": {
+                                            "type": "object",
+                                            "properties": {
+                                              "url": {
+                                                "type": "string"
+                                              },
+                                              "detail": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "auto",
+                                                  "low",
+                                                  "high"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "url"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "image_url"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "input_audio"
+                                          },
+                                          "input_audio": {
+                                            "type": "object",
+                                            "properties": {
+                                              "data": {
+                                                "type": "string"
+                                              },
+                                              "format": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "wav",
+                                                  "mp3",
+                                                  "flac",
+                                                  "opus",
+                                                  "pcm16"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "data",
+                                              "format"
+                                            ]
+                                          },
+                                          "cache_control": {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "ephemeral"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "input_audio"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "file"
+                                          },
+                                          "file": {
+                                            "type": "object",
+                                            "properties": {
+                                              "file_data": {
+                                                "type": "string"
+                                              },
+                                              "file_id": {
+                                                "type": "string"
+                                              },
+                                              "file_name": {
+                                                "type": "string"
+                                              },
+                                              "file_url": {
+                                                "type": "string"
+                                              },
+                                              "mime_type": {
+                                                "type": "string"
+                                              }
+                                            }
+                                          },
+                                          "cache_control": {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "ephemeral"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "file"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": {}
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            },
+                            "role": {
+                              "type": "string",
+                              "const": "system"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "cache_control": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "ephemeral"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "type"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "content",
+                            "role"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "content": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "items": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "text"
+                                          },
+                                          "text": {
+                                            "type": "string"
+                                          },
+                                          "cache_control": {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "ephemeral"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "text"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "image_url"
+                                          },
+                                          "image_url": {
+                                            "type": "object",
+                                            "properties": {
+                                              "url": {
+                                                "type": "string"
+                                              },
+                                              "detail": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "auto",
+                                                  "low",
+                                                  "high"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "url"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "image_url"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "input_audio"
+                                          },
+                                          "input_audio": {
+                                            "type": "object",
+                                            "properties": {
+                                              "data": {
+                                                "type": "string"
+                                              },
+                                              "format": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "wav",
+                                                  "mp3",
+                                                  "flac",
+                                                  "opus",
+                                                  "pcm16"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "data",
+                                              "format"
+                                            ]
+                                          },
+                                          "cache_control": {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "ephemeral"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "input_audio"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "file"
+                                          },
+                                          "file": {
+                                            "type": "object",
+                                            "properties": {
+                                              "file_data": {
+                                                "type": "string"
+                                              },
+                                              "file_id": {
+                                                "type": "string"
+                                              },
+                                              "file_name": {
+                                                "type": "string"
+                                              },
+                                              "file_url": {
+                                                "type": "string"
+                                              },
+                                              "mime_type": {
+                                                "type": "string"
+                                              }
+                                            }
+                                          },
+                                          "cache_control": {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "ephemeral"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "file"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": {}
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            },
+                            "role": {
+                              "type": "string",
+                              "const": "developer"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "cache_control": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "ephemeral"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "type"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "content",
+                            "role"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "content": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "items": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "text"
+                                          },
+                                          "text": {
+                                            "type": "string"
+                                          },
+                                          "cache_control": {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "ephemeral"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "text"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "image_url"
+                                          },
+                                          "image_url": {
+                                            "type": "object",
+                                            "properties": {
+                                              "url": {
+                                                "type": "string"
+                                              },
+                                              "detail": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "auto",
+                                                  "low",
+                                                  "high"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "url"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "image_url"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "input_audio"
+                                          },
+                                          "input_audio": {
+                                            "type": "object",
+                                            "properties": {
+                                              "data": {
+                                                "type": "string"
+                                              },
+                                              "format": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "wav",
+                                                  "mp3",
+                                                  "flac",
+                                                  "opus",
+                                                  "pcm16"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "data",
+                                              "format"
+                                            ]
+                                          },
+                                          "cache_control": {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "ephemeral"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "input_audio"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "file"
+                                          },
+                                          "file": {
+                                            "type": "object",
+                                            "properties": {
+                                              "file_data": {
+                                                "type": "string"
+                                              },
+                                              "file_id": {
+                                                "type": "string"
+                                              },
+                                              "file_name": {
+                                                "type": "string"
+                                              },
+                                              "file_url": {
+                                                "type": "string"
+                                              },
+                                              "mime_type": {
+                                                "type": "string"
+                                              }
+                                            }
+                                          },
+                                          "cache_control": {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "ephemeral"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "file"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": {}
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            },
+                            "role": {
+                              "type": "string",
+                              "const": "user"
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "content",
+                            "role"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "content": {
+                              "anyOf": [
+                                {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "items": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "text"
+                                              },
+                                              "text": {
+                                                "type": "string"
+                                              },
+                                              "cache_control": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "type": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "ephemeral"
+                                                    ]
+                                                  }
+                                                },
+                                                "required": [
+                                                  "type"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "text"
+                                            ]
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "image_url"
+                                              },
+                                              "image_url": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "url": {
+                                                    "type": "string"
+                                                  },
+                                                  "detail": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "auto",
+                                                      "low",
+                                                      "high"
+                                                    ]
+                                                  }
+                                                },
+                                                "required": [
+                                                  "url"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "image_url"
+                                            ]
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "input_audio"
+                                              },
+                                              "input_audio": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "data": {
+                                                    "type": "string"
+                                                  },
+                                                  "format": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "wav",
+                                                      "mp3",
+                                                      "flac",
+                                                      "opus",
+                                                      "pcm16"
+                                                    ]
+                                                  }
+                                                },
+                                                "required": [
+                                                  "data",
+                                                  "format"
+                                                ]
+                                              },
+                                              "cache_control": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "type": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "ephemeral"
+                                                    ]
+                                                  }
+                                                },
+                                                "required": [
+                                                  "type"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "input_audio"
+                                            ]
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "file"
+                                              },
+                                              "file": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "file_data": {
+                                                    "type": "string"
+                                                  },
+                                                  "file_id": {
+                                                    "type": "string"
+                                                  },
+                                                  "file_name": {
+                                                    "type": "string"
+                                                  },
+                                                  "file_url": {
+                                                    "type": "string"
+                                                  },
+                                                  "mime_type": {
+                                                    "type": "string"
+                                                  }
+                                                }
+                                              },
+                                              "cache_control": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "type": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "ephemeral"
+                                                    ]
+                                                  }
+                                                },
+                                                "required": [
+                                                  "type"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "file"
+                                            ]
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ],
+                                            "additionalProperties": {}
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "role": {
+                              "type": "string",
+                              "const": "assistant"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "tool_calls": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "type": {
+                                    "type": "string",
+                                    "const": "function"
+                                  },
+                                  "function": {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "arguments": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "name",
+                                      "arguments"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "type",
+                                  "function"
+                                ]
+                              }
+                            },
+                            "function_call": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "arguments": {
+                                      "type": "string"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "arguments",
+                                    "name"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "cache_control": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "ephemeral"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "type"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "role"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "role": {
+                              "type": "string",
+                              "const": "tool"
+                            },
+                            "content": {
+                              "anyOf": [
+                                {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "items": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "text"
+                                              },
+                                              "text": {
+                                                "type": "string"
+                                              },
+                                              "cache_control": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "type": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "ephemeral"
+                                                    ]
+                                                  }
+                                                },
+                                                "required": [
+                                                  "type"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "text"
+                                            ]
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "image_url"
+                                              },
+                                              "image_url": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "url": {
+                                                    "type": "string"
+                                                  },
+                                                  "detail": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "auto",
+                                                      "low",
+                                                      "high"
+                                                    ]
+                                                  }
+                                                },
+                                                "required": [
+                                                  "url"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "image_url"
+                                            ]
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "input_audio"
+                                              },
+                                              "input_audio": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "data": {
+                                                    "type": "string"
+                                                  },
+                                                  "format": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "wav",
+                                                      "mp3",
+                                                      "flac",
+                                                      "opus",
+                                                      "pcm16"
+                                                    ]
+                                                  }
+                                                },
+                                                "required": [
+                                                  "data",
+                                                  "format"
+                                                ]
+                                              },
+                                              "cache_control": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "type": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "ephemeral"
+                                                    ]
+                                                  }
+                                                },
+                                                "required": [
+                                                  "type"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "input_audio"
+                                            ]
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "file"
+                                              },
+                                              "file": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "file_data": {
+                                                    "type": "string"
+                                                  },
+                                                  "file_id": {
+                                                    "type": "string"
+                                                  },
+                                                  "file_name": {
+                                                    "type": "string"
+                                                  },
+                                                  "file_url": {
+                                                    "type": "string"
+                                                  },
+                                                  "mime_type": {
+                                                    "type": "string"
+                                                  }
+                                                }
+                                              },
+                                              "cache_control": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "type": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "ephemeral"
+                                                    ]
+                                                  }
+                                                },
+                                                "required": [
+                                                  "type"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "file"
+                                            ]
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ],
+                                            "additionalProperties": {}
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "tool_call_id": {
+                              "type": "string"
+                            },
+                            "cache_control": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "ephemeral"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "type"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "role",
+                            "content",
+                            "tool_call_id"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "role": {
+                              "type": "string",
+                              "const": "function"
+                            },
+                            "content": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "role",
+                            "content",
+                            "name"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "model": {
+                    "default": "openai",
+                    "type": "string"
+                  },
+                  "modalities": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "text",
+                        "audio"
+                      ]
+                    }
+                  },
+                  "audio": {
+                    "type": "object",
+                    "properties": {
+                      "voice": {
+                        "type": "string",
+                        "enum": [
+                          "alloy",
+                          "echo",
+                          "fable",
+                          "onyx",
+                          "nova",
+                          "shimmer"
+                        ]
+                      },
+                      "format": {
+                        "type": "string",
+                        "enum": [
+                          "wav",
+                          "mp3",
+                          "flac",
+                          "opus",
+                          "pcm16"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "voice",
+                      "format"
+                    ]
+                  },
+                  "frequency_penalty": {
+                    "default": 0,
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": -2,
+                        "maximum": 2
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "logit_bias": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "logprobs": {
+                    "default": false,
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "top_logprobs": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 20
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "max_tokens": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "n": {
+                    "default": 1,
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 128
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "presence_penalty": {
+                    "default": 0,
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": -2,
+                        "maximum": 2
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "response_format": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "text"
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "json_schema"
+                          },
+                          "json_schema": {
+                            "type": "object",
+                            "properties": {
+                              "description": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "schema": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {}
+                              },
+                              "strict": {
+                                "default": false,
+                                "anyOf": [
+                                  {
+                                    "type": "boolean"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "schema"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "json_schema"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "json_object"
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ]
+                      }
+                    ]
+                  },
+                  "seed": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "stop": {
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      {
+                        "minItems": 1,
+                        "maxItems": 4,
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "stream": {
+                    "default": false,
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "stream_options": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "include_usage": {
+                            "type": "boolean"
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "thinking": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "default": "disabled",
+                            "type": "string",
+                            "enum": [
+                              "enabled",
+                              "disabled"
+                            ]
+                          },
+                          "budget_tokens": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "reasoning_effort": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high"
+                    ]
+                  },
+                  "thinking_budget": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "temperature": {
+                    "default": 1,
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 2
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "top_p": {
+                    "default": 1,
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tools": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "function"
+                        },
+                        "function": {
+                          "type": "object",
+                          "properties": {
+                            "description": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "parameters": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {}
+                            },
+                            "strict": {
+                              "default": false,
+                              "anyOf": [
+                                {
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "function"
+                      ]
+                    }
+                  },
+                  "tool_choice": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "auto",
+                          "required"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "function"
+                          },
+                          "function": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "name"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "function"
+                        ]
+                      }
+                    ]
+                  },
+                  "parallel_tool_calls": {
+                    "default": true,
+                    "type": "boolean"
+                  },
+                  "user": {
+                    "type": "string"
+                  },
+                  "function_call": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "auto"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name"
+                        ]
+                      }
+                    ]
+                  },
+                  "functions": {
+                    "minItems": 1,
+                    "maxItems": 128,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "description": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "parameters": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {}
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "messages"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openai": {},
+    "/text/{prompt}": {
+      "get": {
+        "operationId": "getGenerateText:prompt",
+        "tags": [
+          "gen.pollinations.ai"
+        ],
+        "description": "Generates text from text prompts.\n\n**Authentication:**\n\nInclude your API key either:\n- In the `Authorization` header as a Bearer token: `Authorization: Bearer YOUR_API_KEY`\n- As a query parameter: `?key=YOUR_API_KEY`\n\nAPI keys can be created from your dashboard at enter.pollinations.ai.",
+        "responses": {
+          "200": {
+            "description": "Generated text response",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "prompt",
+            "schema": {
+              "example": "Write a haiku about coding",
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Text prompt for generation"
+          },
+          {
+            "in": "query",
+            "name": "model",
+            "schema": {
+              "default": "openai",
+              "type": "string",
+              "enum": [
+                "openai",
+                "openai-fast",
+                "openai-large",
+                "qwen-coder",
+                "mistral",
+                "openai-audio",
+                "openai-reasoning",
+                "gemini",
+                "deepseek",
+                "grok",
+                "gemini-search",
+                "chickytutor",
+                "midijourney",
+                "claude-fast",
+                "claude",
+                "claude-large",
+                "perplexity-fast",
+                "perplexity-reasoning",
+                "kimi-k2-thinking",
+                "gemini-large",
+                "nova-micro"
+              ]
+            },
+            "description": "Text model to use for generation"
+          },
+          {
+            "in": "query",
+            "name": "seed",
+            "schema": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "description": "Random seed for reproducible results"
+          },
+          {
+            "in": "query",
+            "name": "system",
+            "schema": {
+              "type": "string"
+            },
+            "description": "System prompt to set context/behavior for the model"
+          },
+          {
+            "in": "query",
+            "name": "json",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Return response in JSON format"
+          },
+          {
+            "in": "query",
+            "name": "temperature",
+            "schema": {
+              "type": "number"
+            },
+            "description": "Controls creativity (0.0=strict, 2.0=creative)"
+          },
+          {
+            "in": "query",
+            "name": "stream",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Stream response in real-time chunks"
+          },
+          {
+            "in": "query",
+            "name": "private",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Hide from public feeds"
+          }
+        ]
+      }
+    },
+    "/image/{prompt}": {
+      "get": {
+        "operationId": "getGenerateImage:prompt{[\\s\\S]+}",
+        "tags": [
+          "gen.pollinations.ai"
+        ],
+        "description": "Generate an image or video from a text prompt.\n\n**Image Models:** `flux` (default), `turbo`, `gptimage`, `kontext`, `seedream`, `nanobanana`, `nanobanana-pro`\n\n**Video Models:** `veo`, `seedance`\n- `veo`: Text-to-video only (4-8 seconds)\n- `seedance`: Text-to-video and image-to-video (2-10 seconds)\n\n**Authentication:**\n\nInclude your API key either:\n- In the `Authorization` header as a Bearer token: `Authorization: Bearer YOUR_API_KEY`\n- As a query parameter: `?key=YOUR_API_KEY`\n\nAPI keys can be created from your dashboard at enter.pollinations.ai.",
+        "responses": {
+          "200": {
+            "description": "Success - Returns the generated image or video",
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Something was wrong with the input data, check the details for more info.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "number",
+                      "const": 400
+                    },
+                    "success": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "const": "BAD_REQUEST"
+                        },
+                        "message": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Something was wrong with the input data, check the details for more info."
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "timestamp": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "stack": {
+                              "type": "string"
+                            },
+                            "formErrors": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "fieldErrors": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "formErrors",
+                            "fieldErrors"
+                          ]
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "cause": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "timestamp",
+                        "details"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "success",
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "You need to authenticate by providing a session cookie or Authorization header (Bearer token).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "number",
+                      "const": 401
+                    },
+                    "success": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "const": "UNAUTHORIZED"
+                        },
+                        "message": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "You need to authenticate by providing a session cookie or Authorization header (Bearer token)."
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "timestamp": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "stack": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ]
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "cause": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "timestamp",
+                        "details"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "success",
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Oh snap, something went wrong on our end. We're on it!",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "number",
+                      "const": 500
+                    },
+                    "success": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "const": "INTERNAL_ERROR"
+                        },
+                        "message": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Oh snap, something went wrong on our end. We're on it!"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "timestamp": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "stack": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ]
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "cause": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "timestamp",
+                        "details"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "success",
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "prompt",
+            "schema": {
+              "example": "a beautiful sunset over mountains",
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Text description of the image or video to generate"
+          },
+          {
+            "in": "query",
+            "name": "model",
+            "schema": {
+              "default": "flux",
+              "type": "string",
+              "enum": [
+                "flux",
+                "kontext",
+                "turbo",
+                "nanobanana",
+                "nanobanana-pro",
+                "seedream",
+                "seedream-pro",
+                "gptimage",
+                "zimage",
+                "veo",
+                "seedance",
+                "seedance-pro"
+              ]
+            },
+            "description": "AI model. Image: flux, turbo, gptimage, kontext, seedream, seedream-pro, nanobanana. Video: veo, seedance, seedance-pro"
+          },
+          {
+            "in": "query",
+            "name": "width",
+            "schema": {
+              "default": 1024,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "description": "Image width in pixels"
+          },
+          {
+            "in": "query",
+            "name": "height",
+            "schema": {
+              "default": 1024,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "description": "Image height in pixels"
+          },
+          {
+            "in": "query",
+            "name": "seed",
+            "schema": {
+              "default": 42,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1844674407370955
+            },
+            "description": "Random seed for reproducible results"
+          },
+          {
+            "in": "query",
+            "name": "enhance",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Let AI improve your prompt for better results"
+          },
+          {
+            "in": "query",
+            "name": "negative_prompt",
+            "schema": {
+              "default": "worst quality, blurry",
+              "type": "string"
+            },
+            "description": "What to avoid in the generated image"
+          },
+          {
+            "in": "query",
+            "name": "private",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Hide image from public feeds"
+          },
+          {
+            "in": "query",
+            "name": "nologo",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Remove Pollinations watermark"
+          },
+          {
+            "in": "query",
+            "name": "nofeed",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Don't add to public feed"
+          },
+          {
+            "in": "query",
+            "name": "safe",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Enable safety content filters"
+          },
+          {
+            "in": "query",
+            "name": "quality",
+            "schema": {
+              "default": "medium",
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "hd"
+              ]
+            },
+            "description": "Image quality level"
+          },
+          {
+            "in": "query",
+            "name": "image",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Reference image URL(s) for image-to-image or video. Comma/pipe separated for multiple"
+          },
+          {
+            "in": "query",
+            "name": "transparent",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Generate with transparent background"
+          },
+          {
+            "in": "query",
+            "name": "guidance_scale",
+            "schema": {
+              "type": "number"
+            },
+            "description": "How closely to follow the prompt (1-20)"
+          },
+          {
+            "in": "query",
+            "name": "duration",
+            "schema": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "description": "Video duration in seconds. veo: 4, 6, or 8. seedance: 2-10"
+          },
+          {
+            "in": "query",
+            "name": "aspectRatio",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Video aspect ratio: 16:9 or 9:16"
+          },
+          {
+            "in": "query",
+            "name": "audio",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Enable audio generation for video (veo only)"
+          }
+        ]
+      }
+    }
+  },
+  "x-tagGroups": [
+    {
+      "name": "API",
+      "tags": [
+        "gen.pollinations.ai"
+      ]
+    }
+  ]
+}
