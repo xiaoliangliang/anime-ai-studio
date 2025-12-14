@@ -10,33 +10,6 @@ import type { ProjectListItem } from '@/types'
 import { FeaturesSection, StatsSection, PricingSection, FAQSection, FooterSection } from '@/components/LandingModules'
 import './HomePage.css'
 
-// 快捷标签类型（剧本题材）
-const QUICK_TAGS = [
-  { icon: '🎬', label: '都市爱情', value: '都市爱情' },
-  { icon: '💼', label: '霸总复仇', value: '霸总复仇' },
-  { icon: '👑', label: '古装宫斗', value: '古装宫斗' },
-  { icon: '⚔️', label: '玄幻修仙', value: '玄幻修仙' },
-  { icon: '🎭', label: '悬疑推理', value: '悬疑推理' },
-  { icon: '😂', label: '搞笑沙雕', value: '搞笑沙雕' },
-  { icon: '💻', label: '现代职场', value: '现代职场' },
-  { icon: '🌍', label: '末世求生', value: '末世求生' },
-]
-
-// 集数选项
-const EPISODE_OPTIONS = [
-  { label: '5集', value: 5 },
-  { label: '10集', value: 10 },
-  { label: '15集', value: 15 },
-  { label: '20集', value: 20 },
-  { label: '30集', value: 30 },
-]
-
-// 受众选项
-const AUDIENCE_OPTIONS = [
-  { label: '男频', value: 'male' as const },
-  { label: '女频', value: 'female' as const },
-  { label: '通用', value: 'general' as const },
-]
 
 export default function HomePage() {
   const { t, i18n } = useTranslation()
@@ -44,8 +17,8 @@ export default function HomePage() {
   const location = useLocation()
   const { projects, loadProjects, createProject, deleteProject, isLoading } = useProject()
   
-  // Language switching logic
-  const isZh = location.pathname.startsWith('/zh')
+  // Language switching logic - default to Chinese if path is /
+  const isZh = !location.pathname.startsWith('/en')
   
   useEffect(() => {
     if (isZh && i18n.language !== 'zh') {
@@ -57,15 +30,21 @@ export default function HomePage() {
 
   const handleLanguageSwitch = (lang: string) => {
     const currentPath = location.pathname
-    // If switching to zh and not already zh
-    if (lang === 'zh' && !currentPath.startsWith('/zh')) {
-       navigate('/zh' + currentPath)
+    // If switching to en and not already en
+    if (lang === 'en' && !currentPath.startsWith('/en')) {
+       const newPath = currentPath === '/' ? '/en' : '/en' + currentPath
+       navigate(newPath)
     } 
-    // If switching to en and is currently zh
-    else if (lang === 'en' && currentPath.startsWith('/zh')) {
-       navigate(currentPath.replace(/^\/zh/, '') || '/')
+    // If switching to zh and is currently en
+    else if (lang === 'zh' && currentPath.startsWith('/en')) {
+       navigate(currentPath.replace(/^\/en/, '') || '/')
     }
   }
+
+  // Get localized options from translation
+  const genreOptions = t('creator.genres', { returnObjects: true }) as { label: string; value: string }[]
+  const episodeOptions = t('creator.episodes', { returnObjects: true }) as { label: string; value: number }[]
+  const audienceOptions = t('creator.audiences', { returnObjects: true }) as { label: string; value: string }[]
 
   const [creativity, setCreativity] = useState('')
   const [isCreating, setIsCreating] = useState(false)
@@ -73,25 +52,35 @@ export default function HomePage() {
   const [isDeleting, setIsDeleting] = useState(false)
   
   // 参数选项状态
-  const [selectedGenre, setSelectedGenre] = useState('玄幻修仙')
+  const [selectedGenre, setSelectedGenre] = useState('fantasy_cultivation')
   const [selectedEpisodes, setSelectedEpisodes] = useState(5)
   const [selectedAudience, setSelectedAudience] = useState<'male' | 'female' | 'general'>('male')
 
   // 获取受众显示文本
-  const getAudienceLabel = (value: 'male' | 'female' | 'general') => {
-    const labels = { male: '男频', female: '女频', general: '通用' }
-    return labels[value]
+  const getAudienceLabel = (value: string) => {
+    const option = audienceOptions.find(o => o.value === value)
+    return option ? option.label : value
+  }
+
+  // 获取题材显示文本
+  const getGenreLabel = (value: string) => {
+    const option = genreOptions.find(o => o.value === value)
+    return option ? option.label : value
   }
 
   // 生成默认文案
-  const generateDefaultPrompt = (genre: string, episodes: number, audience: 'male' | 'female' | 'general') => {
-    return `写一个${genre}类型的短剧，${episodes}集，${getAudienceLabel(audience)}向`
+  const generateDefaultPrompt = () => {
+    const template = t('creator.defaultPrompt')
+    return template
+      .replace('{genre}', getGenreLabel(selectedGenre))
+      .replace('{episodes}', String(selectedEpisodes))
+      .replace('{audience}', getAudienceLabel(selectedAudience))
   }
 
   // 参数变化时更新默认文案
   useEffect(() => {
-    setCreativity(generateDefaultPrompt(selectedGenre, selectedEpisodes, selectedAudience))
-  }, [selectedGenre, selectedEpisodes, selectedAudience])
+    setCreativity(generateDefaultPrompt())
+  }, [selectedGenre, selectedEpisodes, selectedAudience, i18n.language])
 
   useEffect(() => {
     loadProjects()
@@ -230,7 +219,7 @@ export default function HomePage() {
                 value={selectedGenre}
                 onChange={e => setSelectedGenre(e.target.value)}
               >
-                {QUICK_TAGS.map(tag => (
+                {genreOptions.map(tag => (
                   <option key={tag.value} value={tag.value}>{tag.label}</option>
                 ))}
               </select>
@@ -244,7 +233,7 @@ export default function HomePage() {
                 value={selectedEpisodes}
                 onChange={e => setSelectedEpisodes(Number(e.target.value))}
               >
-                {EPISODE_OPTIONS.map(opt => (
+                {episodeOptions.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
@@ -258,7 +247,7 @@ export default function HomePage() {
                 value={selectedAudience}
                 onChange={e => setSelectedAudience(e.target.value as 'male' | 'female' | 'general')}
               >
-                {AUDIENCE_OPTIONS.map(opt => (
+                {audienceOptions.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>

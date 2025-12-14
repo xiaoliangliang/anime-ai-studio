@@ -8,9 +8,9 @@ function App() {
     <ProjectProvider>
       <Routes>
         <Route path="/" element={<HomePage />} />
-        <Route path="/zh" element={<HomePage />} />
+        <Route path="/en" element={<HomePage />} />
         <Route path="/project/:projectId" element={<WorkspacePage />} />
-        <Route path="/zh/project/:projectId" element={<WorkspacePage />} />
+        <Route path="/en/project/:projectId" element={<WorkspacePage />} />
       </Routes>
     </ProjectProvider>
   )

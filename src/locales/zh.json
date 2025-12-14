@@ -27,7 +27,30 @@
     "newProject": "新建项目",
     "loading": "加载中...",
     "emptyTip": "开始你的第一次创作之旅吧。",
-    "updatedAt": "更新于"
+    "updatedAt": "更新于",
+    "genres": [
+      { "label": "都市爱情", "value": "urban_romance" },
+      { "label": "霸总复仇", "value": "ceo_revenge" },
+      { "label": "古装宫斗", "value": "palace_intrigue" },
+      { "label": "玄幻修仙", "value": "fantasy_cultivation" },
+      { "label": "悬疑推理", "value": "mystery_thriller" },
+      { "label": "搞笑沙雕", "value": "comedy" },
+      { "label": "现代职场", "value": "workplace" },
+      { "label": "末世求生", "value": "post_apocalyptic" }
+    ],
+    "episodes": [
+      { "label": "5集", "value": 5 },
+      { "label": "10集", "value": 10 },
+      { "label": "15集", "value": 15 },
+      { "label": "20集", "value": 20 },
+      { "label": "30集", "value": 30 }
+    ],
+    "audiences": [
+      { "label": "男频", "value": "male" },
+      { "label": "女频", "value": "female" },
+      { "label": "通用", "value": "general" }
+    ],
+    "defaultPrompt": "写一个{genre}类型的短剧，{episodes}集，{audience}向"
   },
   "hero": {
     "title": "AI漫剧",

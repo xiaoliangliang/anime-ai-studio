@@ -27,7 +27,30 @@
     "newProject": "NEW PROJECT",
     "loading": "LOADING...",
     "emptyTip": "Start your first journey.",
-    "updatedAt": "Updated on"
+    "updatedAt": "Updated on",
+    "genres": [
+      { "label": "Urban Romance", "value": "urban_romance" },
+      { "label": "CEO Revenge", "value": "ceo_revenge" },
+      { "label": "Palace Intrigue", "value": "palace_intrigue" },
+      { "label": "Fantasy Cultivation", "value": "fantasy_cultivation" },
+      { "label": "Mystery Thriller", "value": "mystery_thriller" },
+      { "label": "Comedy", "value": "comedy" },
+      { "label": "Workplace Drama", "value": "workplace" },
+      { "label": "Post-Apocalyptic", "value": "post_apocalyptic" }
+    ],
+    "episodes": [
+      { "label": "5 Episodes", "value": 5 },
+      { "label": "10 Episodes", "value": 10 },
+      { "label": "15 Episodes", "value": 15 },
+      { "label": "20 Episodes", "value": 20 },
+      { "label": "30 Episodes", "value": 30 }
+    ],
+    "audiences": [
+      { "label": "Male", "value": "male" },
+      { "label": "Female", "value": "female" },
+      { "label": "General", "value": "general" }
+    ],
+    "defaultPrompt": "Write a {genre} drama, {episodes} episodes, for {audience} audience"
   },
   "hero": {
     "title": "Anime AI",
