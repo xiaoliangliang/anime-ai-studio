@@ -1,0 +1,166 @@
+{
+  "header": {
+    "brand": {
+      "title": "Anime AI Studio",
+      "url": "/"
+    },
+    "nav": {
+      "items": [
+        { "title": "Home", "url": "/" },
+        { "title": "Features", "url": "/#features" },
+        { "title": "Pricing", "url": "/pricing" },
+        { "title": "Showcase", "url": "/showcase" }
+      ]
+    },
+    "buttons": [
+       { "title": "Dashboard", "url": "/dashboard", "variant": "default" }
+    ]
+  },
+  "creator": {
+    "placeholder": "Describe your story idea... (e.g., A cyberpunk detective story in Neo-Tokyo)",
+    "generate": "GENERATE",
+    "genre": "GENRE",
+    "length": "LENGTH",
+    "target": "TARGET",
+    "recentProjects": "RECENT PROJECTS",
+    "viewAll": "VIEW ALL",
+    "newProject": "NEW PROJECT",
+    "loading": "LOADING...",
+    "emptyTip": "Start your first journey.",
+    "updatedAt": "Updated on"
+  },
+  "hero": {
+    "title": "Anime AI",
+    "highlight_text": "Studio",
+    "description": "The World's First One-Stop Anime AI Studio Based on Infinite Canvas",
+    "buttons": [
+      { "title": "Start Creating", "url": "/dashboard" },
+      { "title": "View Gallery", "url": "/showcase", "variant": "outline" }
+    ]
+  },
+  "features": {
+    "title": "One Platform, Infinite Possibilities",
+    "description": "Everything you need to create professional AI anime.",
+    "items": [
+      {
+        "title": "Infinite Canvas",
+        "description": "A non-linear workspace where your story grows in all directions. No more page limits.",
+        "icon": "LayoutDashboard"
+      },
+      {
+        "title": "Consistent Characters",
+        "description": "Maintain character identity across thousands of generated images with our fine-tuned LoRA models.",
+        "icon": "Users"
+      },
+      {
+        "title": "Script to Video",
+        "description": "Auto-generate storyboards and motion videos directly from your text script.",
+        "icon": "Video"
+      },
+      {
+        "title": "Anime Style Tuned",
+        "description": "Models specifically trained on high-quality anime and manga datasets for authentic aesthetics.",
+        "icon": "Palette"
+      }
+    ]
+  },
+  "stats": {
+    "title": "Trusted by Creators",
+    "items": [
+      { "title": "10k+", "description": "Projects Created" },
+      { "title": "500+", "description": "Daily Active Users" },
+      { "title": "1M+", "description": "Images Generated" }
+    ]
+  },
+  "pricing": {
+    "title": "Choose Your Plan",
+    "description": "From free trial to professional production, meeting the needs of different creators",
+    "items": [
+      {
+        "name": "Free",
+        "price": "$0",
+        "period": "/month",
+        "description": "For trial users",
+        "features": [
+          "Unlimited text features",
+          "AI script generation",
+          "AI storyboard conversion",
+          "Basic image generation",
+          "Community support"
+        ],
+        "button": "Get Started Free",
+        "popular": false
+      },
+      {
+        "name": "Creator",
+        "price": "$12",
+        "period": "/month",
+        "description": "For individual creators",
+        "features": [
+          "Unlimited projects",
+          "HD image generation",
+          "AI video generation",
+          "8 anime genre templates",
+          "Priority queue",
+          "Email support"
+        ],
+        "button": "Subscribe Now",
+        "popular": true
+      },
+      {
+        "name": "Professional",
+        "price": "$49",
+        "period": "/month",
+        "description": "For studios & MCN agencies",
+        "features": [
+          "All Creator features",
+          "4K video generation",
+          "Batch export",
+          "Priority render queue",
+          "Advanced AI models",
+          "API access",
+          "Dedicated account manager"
+        ],
+        "button": "Contact Sales",
+        "popular": false
+      }
+    ]
+  },
+  "faq": {
+    "title": "Frequently Asked Questions",
+    "description": "Common questions about Anime AI Studio",
+    "items": [
+      {
+        "question": "Who is Anime AI Studio for?",
+        "answer": "Our product is designed for: 1) Short video content creators on platforms like TikTok, YouTube Shorts, and Instagram Reels; 2) MCN agencies/drama studios needing batch, standardized short drama production; 3) Social media operators wanting to try drama format without professional filmmaking experience; 4) AI video enthusiasts interested in AIGC video creation; 5) Beginner screenwriters/directors with creative ideas but lacking industry experience. Core user profile: Creators with ideas who don't know professional video production workflows."
+      },
+      {
+        "question": "What pain points does it solve?",
+        "answer": "Core pain points: High barrier to anime drama production, fragmented workflow, low efficiency. 1) High professional barrier - Requires scriptwriting, storyboarding, art, directing skills. We provide AI-guided full workflow so beginners can create professional storyboards; 2) Fragmented tools - No need to switch between Word, Excel, Midjourney, Runway. One-stop platform with 5 seamlessly connected stages; 3) Low efficiency - A 10-episode drama might take 2-4 weeks, AI assistance can compress it to 1-3 days; 4) High costs - Individual creators can complete the entire workflow independently."
+      },
+      {
+        "question": "What are the core features?",
+        "answer": "5 core stages implemented: 1) Screenwriter - 4-step script creation: concept formation → full drama design → batch script generation → AI delivery; 2) Storyboard Artist - Script to professional storyboard conversion with 10-field standard format; 3) Image Designer - Auto-extract character/scene reference image prompts; 4) Artist - Batch AI model calls to generate reference images and keyframes; 5) Director - Keyframe to AI video generation. Plus 8 anime genre templates and all content displayed on infinite canvas."
+      },
+      {
+        "question": "What are typical use cases?",
+        "answer": "1) Monetization - I have a revenge drama story idea and want to quickly make it into a short drama; 2) Batch production - MCN agencies need to produce multiple 5-10 episode vertical dramas weekly; 3) Learning - Beginners wanting to understand the full short drama production workflow; 4) Prototype validation - Quickly generate script and visual demos with AI to validate if an idea is viable; 5) Assisted creation - Professional teams use AI to accelerate pre-production planning and storyboard design."
+      },
+      {
+        "question": "How do I get started?",
+        "answer": "Typical workflow: User inputs a one-sentence idea → AI generates complete script → Auto-breakdown into storyboards → Batch generate keyframe images → One-click AI short video generation. Simply click the 'Start Creating' button above and input your creative idea to begin."
+      },
+      {
+        "question": "What makes this product innovative?",
+        "answer": "The world's first one-stop Anime AI Studio based on infinite canvas. We're not a general AI tool, but a vertical solution deeply optimized for the entire short drama production workflow. The infinite canvas design lets your story grow in all directions, breaking traditional page limitations for true creative freedom."
+      }
+    ]
+  },
+  "footer": {
+    "brand": {
+      "title": "DramaAI",
+      "description": "Global First Infinite Canvas One-Stop AI Manga Creation Platform."
+    },
+    "copyright": "© 2024 DramaAI. All rights reserved."
+  }
+}

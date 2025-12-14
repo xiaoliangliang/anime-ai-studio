@@ -3,10 +3,11 @@
  */
 
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useProject } from '@/contexts/ProjectContext'
-import { TEXT_MODELS, DEFAULT_TEXT_MODEL } from '@/config/textModels'
 import type { ProjectListItem } from '@/types'
+import { FeaturesSection, StatsSection, PricingSection, FAQSection, FooterSection } from '@/components/LandingModules'
 import './HomePage.css'
 
 // 快捷标签类型（剧本题材）
@@ -38,8 +39,34 @@ const AUDIENCE_OPTIONS = [
 ]
 
 export default function HomePage() {
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const location = useLocation()
   const { projects, loadProjects, createProject, deleteProject, isLoading } = useProject()
+  
+  // Language switching logic
+  const isZh = location.pathname.startsWith('/zh')
+  
+  useEffect(() => {
+    if (isZh && i18n.language !== 'zh') {
+      i18n.changeLanguage('zh')
+    } else if (!isZh && i18n.language !== 'en') {
+      i18n.changeLanguage('en')
+    }
+  }, [isZh, i18n])
+
+  const handleLanguageSwitch = (lang: string) => {
+    const currentPath = location.pathname
+    // If switching to zh and not already zh
+    if (lang === 'zh' && !currentPath.startsWith('/zh')) {
+       navigate('/zh' + currentPath)
+    } 
+    // If switching to en and is currently zh
+    else if (lang === 'en' && currentPath.startsWith('/zh')) {
+       navigate(currentPath.replace(/^\/zh/, '') || '/')
+    }
+  }
+
   const [creativity, setCreativity] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<ProjectListItem | null>(null)
@@ -49,8 +76,6 @@ export default function HomePage() {
   const [selectedGenre, setSelectedGenre] = useState('玄幻修仙')
   const [selectedEpisodes, setSelectedEpisodes] = useState(5)
   const [selectedAudience, setSelectedAudience] = useState<'male' | 'female' | 'general'>('male')
-  const [selectedModel, setSelectedModel] = useState(DEFAULT_TEXT_MODEL)
-  const [showModelPopup, setShowModelPopup] = useState(false)
 
   // 获取受众显示文本
   const getAudienceLabel = (value: 'male' | 'female' | 'general') => {
@@ -104,9 +129,6 @@ export default function HomePage() {
     }
   }
 
-  // 获取当前选中的模型信息
-  const currentModel = TEXT_MODELS.find(m => m.id === selectedModel) || TEXT_MODELS[0]
-
   // 处理键盘事件
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -141,100 +163,68 @@ export default function HomePage() {
 
   return (
     <div className="home-page">
-      {/* 左侧导航栏 */}
-      <aside className="home-sidebar">
-        <div className="sidebar-logo">
-          <span className="logo-icon">🎬</span>
-          <span className="logo-text">AI短剧工坊</span>
-        </div>
-        
-        <nav className="sidebar-nav">
-          <button className="nav-item active">
-            <span className="nav-icon">🏠</span>
-            <span className="nav-label">首页</span>
-          </button>
-          <button className="nav-item">
-            <span className="nav-icon">📁</span>
-            <span className="nav-label">项目</span>
-          </button>
-          <button className="nav-item">
-            <span className="nav-icon">⚙️</span>
-            <span className="nav-label">设置</span>
-          </button>
-        </nav>
-      </aside>
+      {/* Language Switcher */}
+      <div className="lang-switch">
+        <button 
+          className={`lang-btn ${!isZh ? 'active' : ''}`}
+          onClick={() => handleLanguageSwitch('en')}
+        >
+          EN
+        </button>
+        <button 
+          className={`lang-btn ${isZh ? 'active' : ''}`}
+          onClick={() => handleLanguageSwitch('zh')}
+        >
+          中文
+        </button>
+      </div>
 
       {/* 主内容区 */}
       <main className="home-main">
-        {/* 欢迎区域 */}
+        {/* 欢迎区域 - SEO Optimization */}
         <section className="welcome-section">
-          <h1 className="welcome-title">✨ AI短剧工坊</h1>
-          <p className="welcome-subtitle">懂你的AI导演，帮你搞定一切</p>
+          <div className="hero-content">
+            <h1 className="welcome-title">
+              {t('hero.title')} <span className="highlight-glitch">{t('hero.highlight_text')}</span>
+            </h1>
+            <p className="welcome-subtitle">
+              {t('hero.description')}
+            </p>
+          </div>
         </section>
 
         {/* 创意输入区 */}
         <section className="creativity-section">
-          <div className="creativity-input-wrapper">
+          <div className="glass-card input-container">
             <textarea
               className="creativity-input"
-              placeholder="一句话描述你想创作的短剧..."
+              placeholder={t('creator.placeholder')}
               value={creativity}
               onChange={e => setCreativity(e.target.value)}
               onKeyDown={handleKeyDown}
               rows={2}
             />
             <div className="creativity-actions">
-              <button 
-                className="model-params-btn"
-                onClick={() => setShowModelPopup(!showModelPopup)}
-                title="模型参数"
-              >
-                模型参数
-              </button>
+              {/* 固定模型标签 */}
+              <div className="model-label-static">
+                <span className="icon">🤖</span>
+                <span>GPT-5 Nano</span>
+              </div>
               <button 
                 className="submit-btn"
                 onClick={handleCreateProject}
                 disabled={!creativity.trim() || isCreating}
               >
-                {isCreating ? <span className="loading-spinner" /> : '➤'}
+                {isCreating ? <span className="loading-spinner" /> : t('creator.generate')}
               </button>
             </div>
-
-            {/* 模型选择弹窗 */}
-            {showModelPopup && (
-              <div className="model-popup">
-                <div className="model-popup-header">
-                  <span>选择文本模型</span>
-                  <button onClick={() => setShowModelPopup(false)}>✕</button>
-                </div>
-                <div className="model-list">
-                  {TEXT_MODELS.map(model => (
-                    <div
-                      key={model.id}
-                      className={`model-item ${selectedModel === model.id ? 'selected' : ''}`}
-                      onClick={() => {
-                        setSelectedModel(model.id)
-                        setShowModelPopup(false)
-                      }}
-                    >
-                      <div className="model-item-header">
-                        <span className="model-name">{model.name}</span>
-                        {model.recommended && <span className="model-badge">推荐</span>}
-                        <span className={`model-tier tier-${model.tier}`}>{model.tier}</span>
-                      </div>
-                      <div className="model-desc">{model.description}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* 参数选择区域 */}
           <div className="params-section">
             {/* 剧本题材 */}
             <div className="param-group">
-              <span className="param-label">剧本题材</span>
+              <span className="param-label">{t('creator.genre')}</span>
               <select 
                 className="param-select"
                 value={selectedGenre}
@@ -248,7 +238,7 @@ export default function HomePage() {
 
             {/* 集数选择 */}
             <div className="param-group">
-              <span className="param-label">集数</span>
+              <span className="param-label">{t('creator.length')}</span>
               <select 
                 className="param-select"
                 value={selectedEpisodes}
@@ -262,7 +252,7 @@ export default function HomePage() {
 
             {/* 受众选择 */}
             <div className="param-group">
-              <span className="param-label">受众</span>
+              <span className="param-label">{t('creator.target')}</span>
               <select 
                 className="param-select"
                 value={selectedAudience}
@@ -276,11 +266,13 @@ export default function HomePage() {
           </div>
         </section>
 
+        {/* Feature Highlights (SEO & Intro) - Removed old one, using new modules below */}
+        
         {/* 项目列表区 */}
         <section className="projects-section">
           <div className="section-header">
-            <h2 className="section-title">最近项目</h2>
-            <button className="view-all-btn">查看全部 →</button>
+            <h2 className="section-title">{t('creator.recentProjects')}</h2>
+            <button className="view-all-btn">{t('creator.viewAll')}</button>
           </div>
 
           <div className="projects-grid">
@@ -290,18 +282,18 @@ export default function HomePage() {
               onClick={() => document.querySelector<HTMLTextAreaElement>('.creativity-input')?.focus()}
             >
               <div className="new-project-icon">+</div>
-              <span className="new-project-label">新建项目</span>
+              <span className="new-project-label">{t('creator.newProject')}</span>
             </div>
 
             {/* 项目卡片列表 */}
             {isLoading ? (
               <div className="loading-placeholder">
                 <span className="loading-spinner" />
-                <span>加载中...</span>
+                <span>{t('creator.loading')}</span>
               </div>
             ) : projects.length === 0 ? (
               <div className="empty-placeholder">
-                <p>还没有项目，快来创建你的第一个短剧吧！</p>
+                <p>{t('creator.emptyTip')}</p>
               </div>
             ) : (
               projects.map(project => (
@@ -327,7 +319,7 @@ export default function HomePage() {
                   <div className="project-info">
                     <h3 className="project-name">{project.name}</h3>
                     <p className="project-time">
-                      更新于 {new Date(project.updatedAt).toLocaleDateString()}
+                      {t('creator.updatedAt')} {new Date(project.updatedAt).toLocaleDateString()}
                     </p>
                     <div className="stage-progress">
                       {project.stageProgress.map(sp => (
@@ -344,6 +336,13 @@ export default function HomePage() {
             )}
           </div>
         </section>
+
+        {/* Landing Page Modules */}
+        <FeaturesSection />
+        <StatsSection />
+        <PricingSection />
+        <FAQSection />
+        <FooterSection />
       </main>
 
       {/* 删除确认对话框 */}

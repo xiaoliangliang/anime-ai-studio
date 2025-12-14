@@ -173,17 +173,105 @@ export function extractJSON(text: string): unknown | null {
         }
       }
     } else if (depth > 0) {
-      // JSON 不完整（被截断），尝试补全括号
+      // JSON 不完整（被截断），尝试智能补全括号
       console.log('[extractJSON] JSON不完整，尝试补全括号, 缺少深度:', depth);
-      let fixedJson = cleaned;
-      for (let i = 0; i < depth; i++) {
-        // 根据开始字符决定补什么
-        fixedJson += cleaned[0] === '[' ? ']' : '}';
+      
+      // 追踪需要闭合的括号类型（使用栈）
+      const bracketStack: string[] = [];
+      let inStr = false;
+      let esc = false;
+      
+      for (let i = 0; i < cleaned.length; i++) {
+        const c = cleaned[i];
+        if (esc) { esc = false; continue; }
+        if (c === '\\') { esc = true; continue; }
+        if (c === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (c === '{') bracketStack.push('}');
+        else if (c === '[') bracketStack.push(']');
+        else if (c === '}' || c === ']') bracketStack.pop();
       }
+      
+      // 检查是否在字符串中被截断，如果是先闭合字符串
+      let fixedJson = cleaned;
+      if (inStr) {
+        // 移除未完成的字符串值部分，找到最后一个完整的 key-value
+        const lastQuoteIdx = fixedJson.lastIndexOf('"');
+        const lastColonBeforeQuote = fixedJson.lastIndexOf(':', lastQuoteIdx);
+        if (lastColonBeforeQuote > 0) {
+          // 找到这个 key 的开始位置
+          let keyStart = fixedJson.lastIndexOf('"', lastColonBeforeQuote - 1);
+          keyStart = fixedJson.lastIndexOf('"', keyStart - 1);
+          if (keyStart > 0) {
+            // 截断到上一个完整元素
+            fixedJson = fixedJson.substring(0, keyStart).trimEnd();
+            // 移除尾随逗号
+            if (fixedJson.endsWith(',')) {
+              fixedJson = fixedJson.slice(0, -1);
+            }
+            // 重新计算需要闭合的括号
+            bracketStack.length = 0;
+            inStr = false;
+            esc = false;
+            for (let i = 0; i < fixedJson.length; i++) {
+              const c = fixedJson[i];
+              if (esc) { esc = false; continue; }
+              if (c === '\\') { esc = true; continue; }
+              if (c === '"') { inStr = !inStr; continue; }
+              if (inStr) continue;
+              if (c === '{') bracketStack.push('}');
+              else if (c === '[') bracketStack.push(']');
+              else if (c === '}' || c === ']') bracketStack.pop();
+            }
+          }
+        }
+      }
+      
+      // 逆序添加需要闭合的括号
+      while (bracketStack.length > 0) {
+        fixedJson += bracketStack.pop();
+      }
+      
       try {
+        console.log('[extractJSON] 尝试智能补全...');
         return JSON.parse(fixedJson);
       } catch (e) {
-        console.log('[extractJSON] 补全后解析失败:', (e as Error).message?.substring(0, 100));
+        console.log('[extractJSON] 智能补全后解析失败:', (e as Error).message?.substring(0, 100));
+        
+        // 最后尝试：移除更多不完整内容
+        try {
+          // 找最后一个完整的数组元素或对象属性
+          let truncated = fixedJson;
+          // 尝试找到最后一个 }, 或 ],
+          const lastComplete = Math.max(
+            truncated.lastIndexOf('},'),
+            truncated.lastIndexOf('],'),
+            truncated.lastIndexOf('}]'),
+            truncated.lastIndexOf(']}'),
+            truncated.lastIndexOf('}}')
+          );
+          if (lastComplete > truncated.length * 0.5) {
+            truncated = truncated.substring(0, lastComplete + 1);
+            // 重新计算并添加闭合括号
+            const stack2: string[] = [];
+            let inS = false, es = false;
+            for (let i = 0; i < truncated.length; i++) {
+              const c = truncated[i];
+              if (es) { es = false; continue; }
+              if (c === '\\') { es = true; continue; }
+              if (c === '"') { inS = !inS; continue; }
+              if (inS) continue;
+              if (c === '{') stack2.push('}');
+              else if (c === '[') stack2.push(']');
+              else if (c === '}' || c === ']') stack2.pop();
+            }
+            while (stack2.length > 0) truncated += stack2.pop();
+            console.log('[extractJSON] 尝试截断到最后完整元素...');
+            return JSON.parse(truncated);
+          }
+        } catch {
+          console.log('[extractJSON] 截断修复也失败');
+        }
       }
     }
   }

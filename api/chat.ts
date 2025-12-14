@@ -111,40 +111,60 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no'); // 禁用代理缓冲
 
       let fullContent = '';
 
-      // 使用 Replicate 流式 API
-      for await (const event of replicate.stream('openai/gpt-5-nano', { input })) {
-        const chunk = String(event);
-        fullContent += chunk;
-        
-        // 发送 SSE 格式数据
-        const sseData = JSON.stringify({
+      try {
+        // 使用 Replicate 流式 API
+        for await (const event of replicate.stream('openai/gpt-5-nano', { input })) {
+          const chunk = String(event);
+          fullContent += chunk;
+          
+          // 发送 SSE 格式数据
+          const sseData = JSON.stringify({
+            id: `replicate-${Date.now()}`,
+            object: 'chat.completion.chunk',
+            choices: [{
+              index: 0,
+              delta: { content: chunk },
+              finish_reason: null,
+            }],
+          });
+          res.write(`data: ${sseData}\n\n`);
+        }
+
+        console.log('[chat] 流式响应完成，内容长度:', fullContent.length);
+
+        // 发送结束标记
+        const endData = JSON.stringify({
           id: `replicate-${Date.now()}`,
           object: 'chat.completion.chunk',
           choices: [{
             index: 0,
-            delta: { content: chunk },
-            finish_reason: null,
+            delta: {},
+            finish_reason: 'stop',
           }],
         });
-        res.write(`data: ${sseData}\n\n`);
+        res.write(`data: ${endData}\n\n`);
+        res.write('data: [DONE]\n\n');
+      } catch (streamError) {
+        console.error('[chat] 流式传输错误:', streamError);
+        // 尝试发送错误信息给客户端
+        const errorData = JSON.stringify({
+          id: `replicate-${Date.now()}`,
+          object: 'chat.completion.chunk',
+          choices: [{
+            index: 0,
+            delta: { content: '\n[ERROR: 流式响应中断]' },
+            finish_reason: 'error',
+          }],
+        });
+        res.write(`data: ${errorData}\n\n`);
+        res.write('data: [DONE]\n\n');
+      } finally {
+        res.end();
       }
-
-      // 发送结束标记
-      const endData = JSON.stringify({
-        id: `replicate-${Date.now()}`,
-        object: 'chat.completion.chunk',
-        choices: [{
-          index: 0,
-          delta: {},
-          finish_reason: 'stop',
-        }],
-      });
-      res.write(`data: ${endData}\n\n`);
-      res.write('data: [DONE]\n\n');
-      res.end();
       return;
     }
 

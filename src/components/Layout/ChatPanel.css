@@ -35,22 +35,17 @@
   position: relative;
 }
 
-.model-selector-btn {
+/* 固定模型标签（不可点击） */
+.model-label {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
-  background: #f5f5f5;
-  border: 1px solid #e0e0e0;
+  padding: 4px 10px;
+  background: #f0f4ff;
+  border: 1px solid #c7d2fe;
   border-radius: 6px;
   font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.model-selector-btn:hover {
-  background: #eee;
-  border-color: #ccc;
+  color: #4f46e5;
 }
 
 .model-icon {

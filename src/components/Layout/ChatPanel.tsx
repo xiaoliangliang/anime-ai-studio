@@ -120,8 +120,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedModel, setSelectedModel] = useState(DEFAULT_TEXT_MODEL)
-  const [showModelPicker, setShowModelPicker] = useState(false)
+  const [selectedModel] = useState(DEFAULT_TEXT_MODEL)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
   // 编剧快捷选项状态
@@ -687,9 +686,6 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
     }
   }
 
-  // 获取当前选中模型信息
-  const currentModel = TEXT_MODELS.find(m => m.id === selectedModel) || TEXT_MODELS[0]
-
   return (
     <div className="chat-panel">
       {/* 头部 */}
@@ -699,61 +695,12 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
           <span className="chat-name">{config.name}</span>
         </div>
         
-        {/* 模型选择器 */}
+        {/* 模型标签 - 固定显示 GPT-5 Nano */}
         <div className="model-selector">
-          <button 
-            className="model-selector-btn"
-            onClick={() => setShowModelPicker(!showModelPicker)}
-            title={currentModel.description}
-          >
+          <div className="model-label">
             <span className="model-icon">🤖</span>
-            <span className="model-name">{currentModel.name}</span>
-            <span className="model-arrow">{showModelPicker ? '▲' : '▼'}</span>
-          </button>
-          
-          {showModelPicker && (
-            <div className="model-picker-dropdown">
-              <div className="model-picker-header">选择 AI 模型</div>
-              
-              {/* 推荐模型 */}
-              <div className="model-group">
-                <div className="model-group-label">⭐ 推荐</div>
-                {TEXT_MODELS.filter(m => m.recommended).map(model => (
-                  <button
-                    key={model.id}
-                    className={`model-option ${selectedModel === model.id ? 'active' : ''}`}
-                    onClick={() => {
-                      setSelectedModel(model.id)
-                      setShowModelPicker(false)
-                    }}
-                  >
-                    <span className="model-option-name">{model.name}</span>
-                    <span className="model-option-desc">{model.description}</span>
-                    <span className={`model-tier tier-${model.tier}`}>{model.tier}</span>
-                  </button>
-                ))}
-              </div>
-              
-              {/* 其他模型 */}
-              <div className="model-group">
-                <div className="model-group-label">📦 全部模型</div>
-                {TEXT_MODELS.filter(m => !m.recommended).map(model => (
-                  <button
-                    key={model.id}
-                    className={`model-option ${selectedModel === model.id ? 'active' : ''}`}
-                    onClick={() => {
-                      setSelectedModel(model.id)
-                      setShowModelPicker(false)
-                    }}
-                  >
-                    <span className="model-option-name">{model.name}</span>
-                    <span className="model-option-desc">{model.description}</span>
-                    <span className={`model-tier tier-${model.tier}`}>{model.tier}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+            <span className="model-name">GPT-5 Nano</span>
+          </div>
         </div>
       </header>
 
