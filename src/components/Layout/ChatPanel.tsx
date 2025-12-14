@@ -38,14 +38,14 @@ interface ChatPanelProps {
 // 编剧快捷选项配置
 const EPISODE_OPTIONS = [5, 10, 15, 20, 30];
 const GENRE_OPTIONS = [
-  { value: '玄幻修仙', label: '🔮 玄幻修仙' },
-  { value: '都市爱情', label: '💕 都市爱情' },
-  { value: '霸总复仇', label: '👔 霸总复仇' },
-  { value: '古装宫斗', label: '🏯 古装宫斗' },
-  { value: '悬疑推理', label: '🔍 悬疑推理' },
-  { value: '搞笑沙雕', label: '🤣 搞笑沙雕' },
-  { value: '现代职场', label: '💼 现代职场' },
-  { value: '末世求生', label: '🌋 末世求生' },
+  { value: 'fantasy_cultivation', label: '🔮 玄幻修仙' },
+  { value: 'urban_romance', label: '💕 都市爱情' },
+  { value: 'ceo_revenge', label: '👔 霸总复仇' },
+  { value: 'palace_intrigue', label: '🏯 古装宫斗' },
+  { value: 'mystery_thriller', label: '🔍 悬疑推理' },
+  { value: 'comedy', label: '🤣 搞笑沙雕' },
+  { value: 'workplace', label: '💼 现代职场' },
+  { value: 'post_apocalyptic', label: '🌋 末世求生' },
 ];
 const AUDIENCE_OPTIONS = [
   { value: '男频', label: '👦 男频' },
@@ -125,7 +125,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   
   // 编剧快捷选项状态
   const [selectedEpisodes, setSelectedEpisodes] = useState(5)
-  const [selectedGenre, setSelectedGenre] = useState('玄幻修仙')
+  const [selectedGenre, setSelectedGenre] = useState('fantasy_cultivation')
   const [selectedAudience, setSelectedAudience] = useState('男频')
   const [hasStartedCreation, setHasStartedCreation] = useState(false)
   
@@ -376,7 +376,9 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
 
   // 开始创作（编剧快捷操作）
   const handleStartCreation = useCallback(() => {
-    const prompt = `我要创作一个${selectedGenre}类型的短剧，共${selectedEpisodes}集，目标受众是${selectedAudience}。请帮我确定创意并输出状态摘要v1.0。`
+    // 将英文value转换为中文label用于prompt
+    const genreLabel = GENRE_OPTIONS.find(opt => opt.value === selectedGenre)?.label.replace(/^[^\s]+\s/, '') || selectedGenre
+    const prompt = `我要创作一个${genreLabel}类型的短剧，共${selectedEpisodes}集，目标受众是${selectedAudience}。请帮我确定创意并输出状态摘要v1.0。`
     setHasStartedCreation(true)
     sendMessage(prompt)
   }, [selectedGenre, selectedEpisodes, selectedAudience, sendMessage])
