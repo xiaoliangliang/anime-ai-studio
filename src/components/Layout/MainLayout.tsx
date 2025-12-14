@@ -254,10 +254,10 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
           }
 
           case 'imageDesigner': {
-            // 图像设计阶段 - 解析AI返回的数据并转换为项目格式
+            // 图像设计阶段 - 解析 AI 返回的数据并转换为项目格式
             // 兼容两种输入：
-            // 1) 旧格式：{ referenceImages, keyframes }
-            // 2) 新格式：{ characterPrompts, scenePrompts, keyframePrompts }
+            // 1) AI 原始格式：{ referenceImages, keyframes }
+            // 2) 项目保存格式：{ characterPrompts, scenePrompts, keyframePrompts }
             const designerData = data as any;
 
             const prevDesigner = updatedProject.imageDesigner || {
@@ -268,10 +268,34 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
             };
 
             // 工具：数组去重（按 code）
+            // 注意：如果 AI 输出缺少 code 字段，旧逻辑会把所有项都当成同一个 key(undefined) 导致只保留 1 条
             const dedupeByCode = <T extends { code: string }>(arr: T[]): T[] => {
               const map = new Map<string, T>();
-              arr.forEach(item => { if (!map.has(item.code)) map.set(item.code, item as T); });
+              arr.forEach((item, idx) => {
+                const key = (item as any)?.code ? String((item as any).code) : `__missing_code__${idx}`;
+                if (!map.has(key)) map.set(key, item as T);
+              });
               return Array.from(map.values());
+            };
+
+            const normalizeRefCode = (raw: unknown, kind: 'character' | 'scene', idx: number): string => {
+              const prefix = kind === 'character' ? 'R-P' : 'R-S';
+              const rawStr = String(raw || '').trim().toUpperCase();
+
+              // 允许 R-P1 / R-S1 → 统一补零到两位
+              const m = rawStr.match(/^R-(P|S)(\d{1,2})$/);
+              if (m) {
+                return `R-${m[1]}${m[2].padStart(2, '0')}`;
+              }
+
+              // 允许 RP01 / RS01 这类非标准写法
+              const m2 = rawStr.match(/^R(P|S)(\d{1,2})$/);
+              if (m2) {
+                return `R-${m2[1]}${m2[2].padStart(2, '0')}`;
+              }
+
+              // 兜底：按顺序生成
+              return `${prefix}${String(idx + 1).padStart(2, '0')}`;
             };
 
             // 1) 角色/场景参考图
@@ -279,17 +303,46 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
             let scenePrompts: any[] = [];
 
             if (Array.isArray(designerData.characterPrompts) || Array.isArray(designerData.scenePrompts)) {
-              // 新格式：直接使用
-              characterPrompts = (designerData.characterPrompts || []).map((p: any) => ({ ...p, type: 'character', isStale: false }));
-              scenePrompts = (designerData.scenePrompts || []).map((p: any) => ({ ...p, type: 'scene', isStale: false }));
+              // 新格式：规范化字段（兼容 refId）
+              characterPrompts = (designerData.characterPrompts || []).map((p: any, idx: number) => ({
+                id: p.id || crypto.randomUUID(),
+                code: normalizeRefCode(p.code ?? p.refId, 'character', idx),
+                name: p.name || '',
+                prompt: p.prompt || '',
+                type: 'character' as const,
+                isStale: false,
+              }));
+              scenePrompts = (designerData.scenePrompts || []).map((p: any, idx: number) => ({
+                id: p.id || crypto.randomUUID(),
+                code: normalizeRefCode(p.code ?? p.refId, 'scene', idx),
+                name: p.name || '',
+                prompt: p.prompt || '',
+                type: 'scene' as const,
+                isStale: false,
+              }));
             } else if (Array.isArray(designerData.referenceImages)) {
-              // 旧格式：从 referenceImages 分离
-              characterPrompts = designerData.referenceImages
+              // AI 原始格式：从 referenceImages 分离（兼容 refId 补零）
+              const refs = designerData.referenceImages as any[];
+              characterPrompts = refs
                 .filter((ref: any) => ref.type === 'character')
-                .map((ref: any) => ({ id: crypto.randomUUID(), code: ref.refId, name: ref.name, prompt: ref.prompt, type: 'character' as const, isStale: false }));
-              scenePrompts = designerData.referenceImages
+                .map((ref: any, idx: number) => ({
+                  id: crypto.randomUUID(),
+                  code: normalizeRefCode(ref.refId, 'character', idx),
+                  name: ref.name || '',
+                  prompt: ref.prompt || '',
+                  type: 'character' as const,
+                  isStale: false,
+                }));
+              scenePrompts = refs
                 .filter((ref: any) => ref.type === 'scene')
-                .map((ref: any) => ({ id: crypto.randomUUID(), code: ref.refId, name: ref.name, prompt: ref.prompt, type: 'scene' as const, isStale: false }));
+                .map((ref: any, idx: number) => ({
+                  id: crypto.randomUUID(),
+                  code: normalizeRefCode(ref.refId, 'scene', idx),
+                  name: ref.name || '',
+                  prompt: ref.prompt || '',
+                  type: 'scene' as const,
+                  isStale: false,
+                }));
             }
 
             // 若本次缺失，则保留历史数据，避免被清空或误覆盖
@@ -299,20 +352,40 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
             // 2) 关键帧
             let keyframePrompts: any[] = [];
             if (Array.isArray(designerData.keyframePrompts)) {
-              keyframePrompts = designerData.keyframePrompts.map((kf: any) => ({ ...kf, isStale: false }));
+              keyframePrompts = (designerData.keyframePrompts as any[]).map((kf: any) => {
+                const shotId = String(kf.shotId || '').trim();
+                const frameIndex = Number(kf.frameIndex ?? kf.frameNumber ?? 1) || 1;
+                const code = String(kf.code || '').trim() || (shotId ? `${shotId}-${frameIndex}` : `KF-${crypto.randomUUID()}`);
+                return {
+                  id: kf.id || crypto.randomUUID(),
+                  code,
+                  shotId,
+                  frameIndex,
+                  prompt: kf.prompt || '',
+                  referenceIds: kf.referenceIds || [],
+                  characters: kf.characters || [],
+                  scene: kf.scene || '',
+                  description: kf.description || '',
+                  isStale: false,
+                };
+              });
             } else if (Array.isArray(designerData.keyframes)) {
-              keyframePrompts = designerData.keyframes.map((kf: any) => ({
-                id: crypto.randomUUID(),
-                code: `${kf.shotId}-${kf.frameNumber}`,
-                shotId: kf.shotId,
-                frameIndex: kf.frameNumber,
-                prompt: kf.prompt,
-                referenceIds: kf.referenceIds || [],
-                characters: kf.characters || [],
-                scene: kf.scene || '',
-                description: kf.description || '',
-                isStale: false,
-              }));
+              keyframePrompts = (designerData.keyframes as any[]).map((kf: any) => {
+                const shotId = String(kf.shotId || '').trim();
+                const frameIndex = Number(kf.frameNumber ?? 1) || 1;
+                return {
+                  id: crypto.randomUUID(),
+                  code: shotId ? `${shotId}-${frameIndex}` : `KF-${crypto.randomUUID()}`,
+                  shotId,
+                  frameIndex,
+                  prompt: kf.prompt || '',
+                  referenceIds: kf.referenceIds || [],
+                  characters: kf.characters || [],
+                  scene: kf.scene || '',
+                  description: kf.description || '',
+                  isStale: false,
+                };
+              });
             } else {
               keyframePrompts = prevDesigner.keyframePrompts || [];
             }

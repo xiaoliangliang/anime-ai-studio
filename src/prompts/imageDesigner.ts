@@ -67,7 +67,9 @@ const APPENDIX_JSON_RULES = `
 - 参考图编号必须是 R-Pxx / R-Sxx 形式，例如 R-P01、R-S01
 - 遍历分镜表中的所有人物和场景，确保不遗漏
 - 覆盖所有镜头，按镜号顺序输出关键帧
-- 上下文会提供分镜表（上一阶段输出），请以此为唯一数据来源
+- 上下文会提供分镜表（上一阶段输出）以及 shotIds / characters / scenes 清单，请严格按清单输出，数量必须对齐（缺一不可）
+  - keyframes[*].shotId 必须来自 shotIds
+  - referenceImages 中人物/场景的 name 必须与 characters/scenes 对齐（不要自创新名字）
 `;
 
 export const IMAGE_DESIGNER_SYSTEM_PROMPT = IMAGE_DESIGNER_MD + APPENDIX_JSON_RULES;
@@ -78,9 +80,12 @@ export const IMAGE_DESIGNER_SYSTEM_PROMPT = IMAGE_DESIGNER_MD + APPENDIX_JSON_RU
 export const IMAGE_DESIGNER_OUTPUT_SCHEMA = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   type: 'object',
+  // 设计阶段必须产出完整模块，否则画布渲染会出现“缺少场景/关键帧模块”
+  required: ['referenceImages', 'keyframes'],
   properties: {
     referenceImages: {
       type: 'array',
+      minItems: 1,
       items: {
         type: 'object',
         required: ['refId', 'type', 'name', 'prompt'],
@@ -98,6 +103,7 @@ export const IMAGE_DESIGNER_OUTPUT_SCHEMA = {
     },
     keyframes: {
       type: 'array',
+      minItems: 1,
       items: {
         type: 'object',
         required: ['shotId', 'frameNumber', 'prompt'],

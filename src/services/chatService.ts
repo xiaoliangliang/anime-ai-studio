@@ -6,7 +6,7 @@
 
 import type { Message, ChatOptions, AIValidationResult, ProjectStage } from '@/types';
 import { getSystemPrompt, getOutputSchema, stageRequiresValidation } from '@/prompts';
-import { validateJSON, extractJSON } from './validationService';
+import { validateJSON, extractJSON, formatValidationErrors } from './validationService';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -36,6 +36,72 @@ export interface ChatCompletionResponse {
     completion_tokens: number;
     total_tokens: number;
   };
+}
+
+/**
+ * 检查图像设计阶段输出是否“对得上”上游分镜（防止被截断/漏项导致画布缺模块）
+ */
+function checkImageDesignerCoverage(data: unknown, contextData: unknown): { valid: boolean; error?: string } {
+  const ctx: any = contextData || {};
+  const out: any = data || {};
+
+  const expectedShotIds: string[] = Array.isArray(ctx.shotIds)
+    ? ctx.shotIds.map((x: any) => String(x).trim()).filter(Boolean)
+    : Array.isArray(ctx.shots)
+      ? ctx.shots.map((s: any) => String(s?.id || '').trim()).filter(Boolean)
+      : [];
+
+  const expectedCharacters: string[] = Array.isArray(ctx.characters)
+    ? ctx.characters.map((x: any) => String(x).trim()).filter(Boolean)
+    : [];
+
+  const expectedScenes: string[] = Array.isArray(ctx.scenes)
+    ? ctx.scenes.map((x: any) => String(x).trim()).filter(Boolean)
+    : [];
+
+  const keyframes: any[] = Array.isArray(out.keyframes) ? out.keyframes : [];
+  const referenceImages: any[] = Array.isArray(out.referenceImages) ? out.referenceImages : [];
+
+  const actualShotIds = new Set<string>(keyframes.map(k => String(k?.shotId || '').trim()).filter(Boolean));
+  const actualCharacterNames = new Set<string>(referenceImages
+    .filter(r => r?.type === 'character')
+    .map(r => String(r?.name || '').trim())
+    .filter(Boolean));
+  const actualSceneNames = new Set<string>(referenceImages
+    .filter(r => r?.type === 'scene')
+    .map(r => String(r?.name || '').trim())
+    .filter(Boolean));
+
+  const normalizeName = (s: string) => String(s || '').trim().toLowerCase().replace(/\s+/g, '');
+  const hasFuzzy = (set: Set<string>, name: string) => {
+    const target = normalizeName(name);
+    if (!target) return true;
+    for (const raw of set) {
+      const cand = normalizeName(raw);
+      if (!cand) continue;
+      if (cand === target) return true;
+      if (cand.includes(target) || target.includes(cand)) return true;
+    }
+    return false;
+  };
+
+  const missingShots = expectedShotIds.filter(id => !actualShotIds.has(id));
+  const missingChars = expectedCharacters.filter(name => !hasFuzzy(actualCharacterNames, name));
+  const missingScenes = expectedScenes.filter(name => !hasFuzzy(actualSceneNames, name));
+
+  const problems: string[] = [];
+  if (expectedShotIds.length > 0 && missingShots.length > 0) {
+    problems.push(`缺少关键帧镜头: ${missingShots.slice(0, 12).join(', ')}${missingShots.length > 12 ? '...' : ''}`);
+  }
+  // 如果上游确实提取到了人物/场景清单，则要求至少覆盖（否则不强行卡死）
+  if (expectedCharacters.length > 0 && missingChars.length > 0) {
+    problems.push(`缺少人物参考图: ${missingChars.slice(0, 12).join(', ')}${missingChars.length > 12 ? '...' : ''}`);
+  }
+  if (expectedScenes.length > 0 && missingScenes.length > 0) {
+    problems.push(`缺少场景参考图: ${missingScenes.slice(0, 12).join(', ')}${missingScenes.length > 12 ? '...' : ''}`);
+  }
+
+  return problems.length > 0 ? { valid: false, error: problems.join('；') } : { valid: true };
 }
 
 /**
@@ -104,9 +170,15 @@ export async function sendChatMessage(
     model = 'gpt-5-nano',
     temperature = 1,
     maxRetries = 3,
+    maxTokens,
     contextData,
     onProgress, // 新增：进度回调
   } = options;
+
+  // 不同阶段的输出长度差异很大：图像设计阶段往往需要输出大量提示词
+  // 若不显式提高 max_tokens，后端会使用默认值(8192)导致输出被截断，进而出现“只生成部分人物/场景/关键帧”的不稳定现象
+  const stageDefaultMaxTokens = stage === 'imageDesigner' ? 24000 : 8192;
+  const effectiveMaxTokens = typeof maxTokens === 'number' && maxTokens > 0 ? maxTokens : stageDefaultMaxTokens;
 
   // 构建消息数组
   const systemPrompt = getSystemPrompt(stage);
@@ -137,6 +209,9 @@ export async function sendChatMessage(
   const needsValidation = stageRequiresValidation(stage);
   const schema = getOutputSchema(stage);
 
+  // 图像设计阶段：必须严格可解析且完整，否则会导致画布缺模块/数量对不上
+  const strictValidation = stage === 'imageDesigner';
+
   // 重试逻辑
   let lastError: string | null = null;
   
@@ -153,6 +228,7 @@ export async function sendChatMessage(
           model,
           messages,
           temperature,
+          max_tokens: effectiveMaxTokens,
           stream: true, // 使用流式模式
         }),
       });
@@ -206,6 +282,26 @@ export async function sendChatMessage(
           console.log('[chatService] 校验结果:', validationResult.valid);
           
           if (validationResult.valid) {
+            // 图像设计阶段额外做一次“对齐上游分镜”的完整性检查
+            if (strictValidation && contextData) {
+              const coverage = checkImageDesignerCoverage(validationResult.data, contextData);
+              if (!coverage.valid) {
+                lastError = coverage.error || '图像设计输出未覆盖全部分镜';
+                console.log('[chatService] 图像设计输出不完整:', lastError);
+
+                if (attempt < maxRetries) {
+                  messages.push({ role: 'assistant', content: assistantContent });
+                  messages.push({
+                    role: 'user',
+                    content: `你的JSON不完整：${lastError}。请严格按照要求补全所有缺失项，并重新输出“完整JSON对象”（只能输出JSON，不能带任何解释文字）。`,
+                  });
+                  continue;
+                }
+
+                return { success: false, error: lastError };
+              }
+            }
+
             return {
               success: true,
               message: assistantMessage,
@@ -213,14 +309,31 @@ export async function sendChatMessage(
               validationResult,
             };
           } else {
-            // 校验失败，但仍然返回数据（宽松模式）
-            console.log('[chatService] 校验失败但仍返回数据（宽松模式）');
-            return {
-              success: true,
-              message: assistantMessage,
-              data: extractedJSON,
-              validationResult,
-            };
+            // 非严格阶段：校验失败仍返回（宽松模式）
+            if (!strictValidation) {
+              console.log('[chatService] 校验失败但仍返回数据（宽松模式）');
+              return {
+                success: true,
+                message: assistantMessage,
+                data: extractedJSON,
+                validationResult,
+              };
+            }
+
+            // 严格阶段：把校验失败视为失败，触发重试
+            lastError = validationResult.errors ? formatValidationErrors(validationResult.errors) : 'JSON Schema 校验失败';
+            console.log('[chatService] 严格模式校验失败:', lastError);
+
+            if (attempt < maxRetries) {
+              messages.push({ role: 'assistant', content: assistantContent });
+              messages.push({
+                role: 'user',
+                content: `你的JSON未通过校验：${lastError}。请严格按JSON结构重写，并只输出JSON对象（不要代码块/不要解释）。`,
+              });
+              continue;
+            }
+
+            return { success: false, error: lastError };
           }
         } else {
           // 没有找到 JSON

@@ -362,18 +362,20 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
         if (!storyboard) return undefined
         
         // 精简单个镜头数据，只保留关键字段
-        const simplifyShot = (shot: Record<string, unknown>) => ({
-          id: shot.shotId || shot.shotNumber || shot.id,
-          loc: shot.location,  // 地点
-          desc: shot.description || shot.content,  // 画面描述
-          char: shot.character,  // 人物
-          dur: shot.duration,  // 时长
-        })
-        
+        // 注意：分镜保存到项目后的字段为 content/assignee（不是 description/character）
+        const simplifyShot = (shot: Record<string, unknown>) => {
+          const id = (shot.shotId as string) || (shot.shotNumber as string) || (shot.id as string) || ''
+          const loc = (shot.location as string) || ''
+          const desc = (shot.description as string) || (shot.content as string) || ''
+          const char = (shot.assignee as string) || (shot.character as string) || ''
+          const dur = shot.duration as number
+          return { id, loc, desc, char, dur }
+        }
+
         // 兼容新旧数据格式
         let shots: Array<unknown> = []
         let episodeNum = 1
-        
+
         if (storyboard.episodes && storyboard.episodes.length > 0) {
           // 新格式: { episodes: [...] }
           const ep = storyboard.episodes[0] as { shots?: Array<unknown>; episodeNumber?: number }
@@ -385,14 +387,46 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
           shots = oldData.shots || []
           episodeNum = oldData.episodeNumber || 1
         }
-        
+
         if (shots.length === 0) return undefined
-        
-        // 返回精简后的分镜表
+
+        const simplifiedShots = shots.map(s => simplifyShot(s as Record<string, unknown>))
+
+        // 给 AI 提供“应当生成哪些内容”的明确清单，减少漏项
+        const shotIds = simplifiedShots
+          .map(s => String(s.id || '').trim())
+          .filter(Boolean)
+
+        const scenes = Array.from(new Set(
+          simplifiedShots
+            .map(s => String(s.loc || '').trim())
+            .filter(Boolean)
+        ))
+
+        const splitNames = (text: string): string[] => {
+          const t = String(text || '').trim()
+          if (!t) return []
+          // 常见无人物标记
+          if (['无', '空', '空镜', '空镜无人物'].includes(t)) return []
+          return t
+            .split(/\s*[、,，\/|&]+\s*/g)
+            .map(x => x.trim())
+            .filter(Boolean)
+            .filter(x => !['无', '空', '空镜'].includes(x))
+        }
+
+        const characters = Array.from(new Set(
+          simplifiedShots.flatMap(s => splitNames(s.char))
+        ))
+
+        // 返回精简后的分镜表 + 期望清单
         return {
           ep: episodeNum,
-          total: shots.length,
-          shots: shots.map(s => simplifyShot(s as Record<string, unknown>)),
+          total: simplifiedShots.length,
+          shotIds,
+          characters,
+          scenes,
+          shots: simplifiedShots,
         }
       }
       default:
@@ -440,7 +474,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
 
       // 调用 AI 服务
       console.log('[ChatPanel] 发送消息, 历史记录数:', historyMessages.length, '上下文:', contextData)
-      const maxRetries = stage === 'screenwriter' ? 1 : 2
+      const maxRetries = stage === 'screenwriter' ? 1 : stage === 'imageDesigner' ? 3 : 2
       const response: ChatResponse = await sendChatMessage(
         messageContent,
         stage,
