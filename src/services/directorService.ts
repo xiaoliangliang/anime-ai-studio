@@ -70,17 +70,56 @@ export interface GenerateAllVideosResult {
 // ===== 核心功能 =====
 
 /**
+ * 从 GeneratedImage 中提取云端 URL
+ * RunComfy API 要求使用公开可访问的 HTTPS URL，不支持 base64
+ * 
+ * 优先级：
+ * 1. 从 asset 中获取 cloudUrl
+ * 2. 如果 imageUrl 是 https URL 则使用
+ * 3. base64 数据不能使用
+ */
+async function getCloudUrl(img: GeneratedImage | undefined): Promise<string | null> {
+  if (!img || img.status !== 'completed') return null;
+  
+  // 优先通过 assetId 从存储中获取 cloudUrl
+  if (img.assetId) {
+    const asset = await getAsset(img.assetId);
+    if (asset?.cloudUrl && (asset.cloudUrl.startsWith('http://') || asset.cloudUrl.startsWith('https://'))) {
+      console.log(`[视频生成] 图片 ${img.name} 使用云端 URL: ${asset.cloudUrl.substring(0, 60)}...`);
+      return asset.cloudUrl;
+    }
+  }
+  
+  // 其次检查 imageUrl 是否为有效的 URL
+  const url = img.imageUrl || '';
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    console.log(`[视频生成] 图片 ${img.name} 使用 imageUrl: ${url.substring(0, 60)}...`);
+    return url;
+  }
+  
+  // base64 数据不能使用
+  if (url.startsWith('data:')) {
+    console.warn(`[视频生成] 图片 ${img.name} 只有 base64 数据（assetId: ${img.assetId}），无法用于视频生成`);
+  } else {
+    console.warn(`[视频生成] 图片 ${img.name} 没有有效的 URL（assetId: ${img.assetId}, imageUrl: ${url ? url.substring(0, 30) : '无'}）`);
+  }
+  
+  return null;
+}
+
+/**
  * 获取镜头的视频生成参数
  * 从分镜数据和美工数据中提取所需信息
+ * 注意：RunComfy API 要求 images 必须是公开可访问的 HTTPS URL
  */
-export function getShotVideoParams(
+export async function getShotVideoParams(
   shot: Shot,
   artistData: ArtistData,
   options: {
     resolution?: '480p' | '720p';
     ratio?: '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9';
   } = {}
-): VideoGenerationParams | null {
+): Promise<VideoGenerationParams | null> {
   const { resolution = '480p', ratio = '16:9' } = options;
   
   // 1. 查找角色参考图（通过负责人/assignee）
@@ -88,7 +127,7 @@ export function getShotVideoParams(
   let characterName = '';
   if (shot.assignee) {
     characterImage = artistData.characterImages.find(
-      img => img.name === shot.assignee && img.status === 'completed' && img.imageUrl
+      img => img.name === shot.assignee && img.status === 'completed'
     );
     characterName = shot.assignee;
   }
@@ -97,7 +136,7 @@ export function getShotVideoParams(
   let sceneImage: GeneratedImage | undefined;
   if (shot.location) {
     sceneImage = artistData.sceneImages.find(
-      img => img.name === shot.location && img.status === 'completed' && img.imageUrl
+      img => img.name === shot.location && img.status === 'completed'
     );
   }
   
@@ -107,31 +146,35 @@ export function getShotVideoParams(
   );
   // 如果没有直接匹配，尝试按镜号匹配
   const keyframeByNumber = keyframeImage || artistData.keyframeImages.find(
-    img => img.name === shot.shotNumber && img.status === 'completed' && img.imageUrl
+    img => img.name === shot.shotNumber && img.status === 'completed'
   );
   
   // 4. 收集参考图片（最多4张，顺序：角色、场景、关键帧）
+  // 注意：必须使用云端 URL (https://)，不能使用 base64
   const images: string[] = [];
   const imageDescriptions: string[] = [];
   
-  if (characterImage?.imageUrl) {
-    images.push(characterImage.imageUrl);
+  const charUrl = await getCloudUrl(characterImage);
+  if (charUrl) {
+    images.push(charUrl);
     imageDescriptions.push(`图${images.length}是${characterName}`);
   }
   
-  if (sceneImage?.imageUrl) {
-    images.push(sceneImage.imageUrl);
+  const sceneUrl = await getCloudUrl(sceneImage);
+  if (sceneUrl) {
+    images.push(sceneUrl);
     imageDescriptions.push(`图${images.length}是${shot.location}`);
   }
   
-  if (keyframeByNumber?.imageUrl) {
-    images.push(keyframeByNumber.imageUrl);
+  const keyframeUrl = await getCloudUrl(keyframeByNumber);
+  if (keyframeUrl) {
+    images.push(keyframeUrl);
     imageDescriptions.push(`图${images.length}是关键帧`);
   }
   
-  // 至少需要1张图片
+  // 至少需要1张图片（必须是云端 URL）
   if (images.length === 0) {
-    console.warn(`镜头 ${shot.shotNumber} 没有可用的参考图片`);
+    console.warn(`镜头 ${shot.shotNumber} 没有可用的云端图片 URL（RunComfy API 不支持 base64）`);
     return null;
   }
   
@@ -424,7 +467,7 @@ export async function generateAllVideos(
     });
 
     // 获取视频生成参数
-    const params = getShotVideoParams(shot, artistData, { resolution, ratio });
+    const params = await getShotVideoParams(shot, artistData, { resolution, ratio });
     
     if (!params) {
       // 没有可用参考图，跳过
@@ -592,7 +635,7 @@ export async function regenerateVideo(
   const targetShot = normalizeShot(found);
 
   // 获取参数并生成
-  const params = getShotVideoParams(targetShot, project.artist, options);
+  const params = await getShotVideoParams(targetShot, project.artist, options);
   if (!params) {
     return { success: false, error: '没有可用的参考图片' };
   }

@@ -21,9 +21,10 @@ export interface ChatOptions {
   model?: string;              // 模型名称，默认 'openai'
   temperature?: number;        // 温度 0-2，默认 0.7
   maxTokens?: number;          // 最大 token 数
-  stream?: boolean;            // 是否流式输出（MVP 仅支持非流式）
+  stream?: boolean;            // 是否流式输出
   maxRetries?: number;         // 最大重试次数
   contextData?: unknown;       // 上下文数据
+  onProgress?: (content: string) => void; // 流式响应进度回调
 }
 
 /** OpenAI 兼容的聊天完成响应 */

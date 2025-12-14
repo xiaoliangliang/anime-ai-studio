@@ -79,13 +79,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const {
     messages,
     max_tokens = 8192,
+    stream = false, // 新增：支持流式参数
   } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: '缺少必要参数: messages 数组' });
   }
 
-  console.log('Chat 请求:', { messageCount: messages.length });
+  console.log('Chat 请求:', { messageCount: messages.length, stream });
 
   try {
     // 转换消息格式
@@ -94,17 +95,61 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log('Replicate 请求:', {
       promptLength: prompt.length,
       systemPromptLength: systemPrompt.length,
-      max_tokens
+      max_tokens,
+      stream
     });
 
-    // 调用 Replicate OpenAI GPT-5 Nano (最快速)
-    const output = await replicate.run('openai/gpt-5-nano', {
-      input: {
-        prompt,
-        system_prompt: systemPrompt,
-        max_tokens: Math.min(max_tokens, 64000), // Replicate 限制最大 64000
-      },
-    });
+    const input = {
+      prompt,
+      system_prompt: systemPrompt,
+      max_tokens: Math.min(max_tokens, 64000),
+    };
+
+    // 流式响应模式
+    if (stream) {
+      // 设置流式响应头
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
+      let fullContent = '';
+
+      // 使用 Replicate 流式 API
+      for await (const event of replicate.stream('openai/gpt-5-nano', { input })) {
+        const chunk = String(event);
+        fullContent += chunk;
+        
+        // 发送 SSE 格式数据
+        const sseData = JSON.stringify({
+          id: `replicate-${Date.now()}`,
+          object: 'chat.completion.chunk',
+          choices: [{
+            index: 0,
+            delta: { content: chunk },
+            finish_reason: null,
+          }],
+        });
+        res.write(`data: ${sseData}\n\n`);
+      }
+
+      // 发送结束标记
+      const endData = JSON.stringify({
+        id: `replicate-${Date.now()}`,
+        object: 'chat.completion.chunk',
+        choices: [{
+          index: 0,
+          delta: {},
+          finish_reason: 'stop',
+        }],
+      });
+      res.write(`data: ${endData}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
+
+    // 非流式响应模式（原逻辑）
+    const output = await replicate.run('openai/gpt-5-nano', { input });
 
     // Replicate 返回的是字符串数组，需要合并
     let content = Array.isArray(output) ? output.join('') : String(output);
@@ -132,7 +177,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
       ],
       usage: {
-        prompt_tokens: 0, // Replicate 不返回 token 计数
+        prompt_tokens: 0,
         completion_tokens: 0,
         total_tokens: 0,
       },

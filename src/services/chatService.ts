@@ -1,6 +1,7 @@
 /**
  * AI Chat 服务
  * 负责调用 /api/chat 端点与 AI 进行对话
+ * 使用流式响应避免 Vercel 超时问题
  */
 
 import type { Message, ChatOptions, AIValidationResult, ProjectStage } from '@/types';
@@ -38,7 +39,60 @@ export interface ChatCompletionResponse {
 }
 
 /**
- * 发送聊天请求到 AI
+ * 解析 SSE 流式数据，返回完整内容
+ */
+async function parseSSEStream(
+  response: Response,
+  onChunk?: (chunk: string, accumulated: string) => void
+): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error('无法读取响应流');
+  }
+
+  const decoder = new TextDecoder();
+  let fullContent = '';
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // 保留不完整的行
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6).trim();
+          
+          if (data === '[DONE]') {
+            continue;
+          }
+
+          try {
+            const parsed = JSON.parse(data);
+            const chunk = parsed.choices?.[0]?.delta?.content || '';
+            if (chunk) {
+              fullContent += chunk;
+              onChunk?.(chunk, fullContent);
+            }
+          } catch {
+            // 忽略解析错误
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return fullContent;
+}
+
+/**
+ * 发送聊天请求到 AI（流式模式）
  */
 export async function sendChatMessage(
   userMessage: string,
@@ -48,9 +102,10 @@ export async function sendChatMessage(
 ): Promise<ChatResponse> {
   const {
     model = 'gpt-5-nano',
-    temperature = 1, // Replicate Claude API
+    temperature = 1,
     maxRetries = 3,
     contextData,
+    onProgress, // 新增：进度回调
   } = options;
 
   // 构建消息数组
@@ -87,6 +142,8 @@ export async function sendChatMessage(
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      console.log(`[chatService] 发送流式请求 (尝试 ${attempt}/${maxRetries})`);
+      
       const response = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: {
@@ -96,20 +153,42 @@ export async function sendChatMessage(
           model,
           messages,
           temperature,
+          stream: true, // 使用流式模式
         }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}`);
+        const errorText = await response.text();
+        let errorMessage = `HTTP ${response.status}`;
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
-      const data: ChatCompletionResponse = await response.json();
-      const assistantContent = data.choices[0]?.message?.content || '';
+      // 检查是否为流式响应
+      const contentType = response.headers.get('content-type') || '';
+      let assistantContent: string;
+
+      if (contentType.includes('text/event-stream')) {
+        // 流式响应：解析 SSE
+        console.log('[chatService] 接收流式响应...');
+        assistantContent = await parseSSEStream(response, (chunk, accumulated) => {
+          onProgress?.(accumulated);
+        });
+        console.log('[chatService] 流式响应完成，内容长度:', assistantContent.length);
+      } else {
+        // 非流式响应：直接解析 JSON
+        const data: ChatCompletionResponse = await response.json();
+        assistantContent = data.choices[0]?.message?.content || '';
+      }
 
       // 创建助手消息
       const assistantMessage: Message = {
-        id: data.id || crypto.randomUUID(),
+        id: crypto.randomUUID(),
         role: 'assistant',
         content: assistantContent,
         timestamp: Date.now(),
@@ -120,14 +199,13 @@ export async function sendChatMessage(
       if (needsValidation && schema) {
         console.log('[chatService] 尝试提取 JSON，内容长度:', assistantContent.length);
         const extractedJSON = extractJSON(assistantContent);
-        console.log('[chatService] 提取结果:', extractedJSON ? '成功' : '失败', extractedJSON);
+        console.log('[chatService] 提取结果:', extractedJSON ? '成功' : '失败');
         
         if (extractedJSON) {
           const validationResult = validateJSON(extractedJSON, schema);
-          console.log('[chatService] 校验结果:', validationResult.valid, validationResult.errors);
+          console.log('[chatService] 校验结果:', validationResult.valid);
           
           if (validationResult.valid) {
-            console.log('[chatService] 返回带数据的响应');
             return {
               success: true,
               message: assistantMessage,
@@ -137,13 +215,10 @@ export async function sendChatMessage(
           } else {
             // 校验失败，但仍然返回数据（宽松模式）
             console.log('[chatService] 校验失败但仍返回数据（宽松模式）');
-            lastError = `JSON 校验失败: ${validationResult.errors?.map(e => e.message).join(', ')}`;
-            
-            // 返回带有数据的响应，即使校验不完全通过
             return {
               success: true,
               message: assistantMessage,
-              data: extractedJSON, // 返回提取的 JSON，即使校验不完全通过
+              data: extractedJSON,
               validationResult,
             };
           }
@@ -164,7 +239,6 @@ export async function sendChatMessage(
       }
 
       // 不需要校验或校验通过
-      console.log('[chatService] 返回不带数据的响应');
       return {
         success: true,
         message: assistantMessage,
@@ -172,11 +246,12 @@ export async function sendChatMessage(
 
     } catch (error) {
       lastError = error instanceof Error ? error.message : '未知错误';
+      console.error(`[chatService] 请求失败 (尝试 ${attempt}/${maxRetries}):`, lastError);
       
       if (attempt === maxRetries) {
         return {
           success: false,
-          error: `请求失败 (尝试 ${attempt}/${maxRetries}): ${lastError}`,
+          error: `请求失败: ${lastError}`,
         };
       }
       
@@ -192,21 +267,119 @@ export async function sendChatMessage(
 }
 
 /**
- * 流式聊天（未来支持）
+ * 流式聊天生成器
+ * 实时返回内容片段
  */
 export async function* streamChatMessage(
   userMessage: string,
   stage: ProjectStage,
   history: Message[] = [],
   options: ChatOptions = {}
-): AsyncGenerator<string, void, unknown> {
-  // 暂时使用非流式实现
-  const response = await sendChatMessage(userMessage, stage, history, options);
-  if (response.success && response.message) {
-    yield response.message.content;
-  } else {
-    throw new Error(response.error || '聊天请求失败');
+): AsyncGenerator<string, ChatResponse, unknown> {
+  const {
+    model = 'gpt-5-nano',
+    temperature = 1,
+    contextData,
+  } = options;
+
+  // 构建消息数组
+  const systemPrompt = getSystemPrompt(stage);
+  const messages: Array<{ role: string; content: string }> = [
+    { role: 'system', content: systemPrompt }
+  ];
+
+  if (contextData) {
+    messages.push({
+      role: 'system',
+      content: `当前项目数据：\n${JSON.stringify(contextData, null, 2)}`
+    });
   }
+
+  for (const msg of history) {
+    messages.push({ role: msg.role, content: msg.content });
+  }
+
+  messages.push({ role: 'user', content: userMessage });
+
+  const response = await fetch(`${API_BASE}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, messages, temperature, stream: true }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error('无法读取响应流');
+  }
+
+  const decoder = new TextDecoder();
+  let fullContent = '';
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') continue;
+
+          try {
+            const parsed = JSON.parse(data);
+            const chunk = parsed.choices?.[0]?.delta?.content || '';
+            if (chunk) {
+              fullContent += chunk;
+              yield chunk;
+            }
+          } catch {
+            // 忽略解析错误
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  // 返回最终结果
+  const needsValidation = stageRequiresValidation(stage);
+  const schema = getOutputSchema(stage);
+  
+  const assistantMessage: Message = {
+    id: crypto.randomUUID(),
+    role: 'assistant',
+    content: fullContent,
+    timestamp: Date.now(),
+    stage,
+  };
+
+  if (needsValidation && schema) {
+    const extractedJSON = extractJSON(fullContent);
+    if (extractedJSON) {
+      const validationResult = validateJSON(extractedJSON, schema);
+      return {
+        success: true,
+        message: assistantMessage,
+        data: extractedJSON,
+        validationResult,
+      };
+    }
+  }
+
+  return {
+    success: true,
+    message: assistantMessage,
+  };
 }
 
 /**
