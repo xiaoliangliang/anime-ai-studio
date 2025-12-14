@@ -311,6 +311,83 @@
   margin-top: 8px;
 }
 
+/* 发送按钮容器（用于定位引导气泡） */
+.send-btn-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+/* 发送按钮引导气泡 */
+.send-guide {
+  position: absolute;
+  top: -56px;
+  right: 0;
+  z-index: 100;
+  animation: sendGuideAppear 0.25s ease-out, sendGuidePulse 2s ease-in-out infinite;
+}
+
+.send-guide-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.45);
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.send-guide-content::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  right: 18px;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid #059669;
+}
+
+.send-guide-icon {
+  font-size: 18px;
+  animation: sendGuideBounce 0.6s ease-in-out infinite;
+}
+
+.send-guide-text {
+  font-size: 13px;
+}
+
+@keyframes sendGuideAppear {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sendGuidePulse {
+  0%, 100% {
+    box-shadow: 0 4px 16px rgba(16, 185, 129, 0.45);
+  }
+  50% {
+    box-shadow: 0 4px 22px rgba(16, 185, 129, 0.65);
+  }
+}
+
+@keyframes sendGuideBounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}
+
 .send-btn {
   padding: 8px 20px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);

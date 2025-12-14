@@ -3,7 +3,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import type { ProjectStage, ChatMessage, Message } from '@/types'
+import type { Project, ProjectStage, ChatMessage, Message } from '@/types'
 import { sendChatMessage, type ChatResponse } from '@/services'
 import { useProject } from '@/contexts/ProjectContext'
 import { TEXT_MODELS, DEFAULT_TEXT_MODEL, TXT2IMG_MODELS, IMG2IMG_MODELS, DEFAULT_TXT2IMG_MODEL, DEFAULT_IMG2IMG_MODEL } from '@/config'
@@ -26,6 +26,39 @@ import {
 } from '@/services/directorService'
 import { TextShimmer } from '@/components/ui/text-shimmer'
 import './ChatPanel.css'
+
+function hasStageOutput(project: Project | null, stageId: ProjectStage): boolean {
+  if (!project) return false
+
+  switch (stageId) {
+    case 'screenwriter': {
+      // 兼容旧版/新版数据结构
+      const sw: any = project.screenwriter
+      return !!(sw?.outline?.length || sw?.scripts?.length || sw?.episodes?.length)
+    }
+    case 'storyboard': {
+      // 兼容两种格式：
+      // 1) 新格式: { episodes: [{ shots }] }
+      // 2) 旧格式: { shots: [...] }
+      const sb: any = project.storyboard
+      const hasEpisodesShots = !!(sb?.episodes?.some((ep: any) => (ep?.shots?.length || 0) > 0))
+      const hasDirectShots = !!((sb?.shots?.length || 0) > 0)
+      return hasEpisodesShots || hasDirectShots
+    }
+    case 'imageDesigner':
+      return !!(
+        project.imageDesigner?.characterPrompts?.length ||
+        project.imageDesigner?.scenePrompts?.length ||
+        project.imageDesigner?.keyframePrompts?.length
+      )
+    default:
+      return false
+  }
+}
+
+function getStartSendGuideStorageKey(projectId: string, stage: ProjectStage): string {
+  return `startSendGuideTried:${projectId}:${stage}`
+}
 
 // 各阶段 loading 文案配置
 const STAGE_LOADING_TEXT: Record<ProjectStage, string> = {
@@ -130,6 +163,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   const { currentProject, updateProject, loadProject } = useProject()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
+  const [showStartSendGuide, setShowStartSendGuide] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedModel] = useState(DEFAULT_TEXT_MODEL)
@@ -171,15 +205,19 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   useEffect(() => {
     // 等待项目数据加载完成
     if (!currentProject) return
-    
+
     // 使用 stage + projectId 作为唯一标识，避免重复初始化
     const initKey = `${stage}-${currentProject.meta.id}`
     if (initializedKeyRef.current === initKey) {
       return
     }
-    
+
     initializedKeyRef.current = initKey
-    
+
+    // 切换阶段时，默认清空输入 & 隐藏引导（必要时下方会再预填“开始”）
+    setInput('')
+    setShowStartSendGuide(false)
+
     // 从项目元数据初始化编剧参数（首页传过来的选择）
     if (stage === 'screenwriter' && currentProject?.meta) {
       if (currentProject.meta.type) {
@@ -193,30 +231,54 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
         const audienceMap: Record<string, string> = {
           'male': '男频',
           'female': '女频',
-          'general': '通用'
+          'general': '通用',
         }
         setSelectedAudience(audienceMap[currentProject.meta.targetAudience] || '男频')
       }
     }
-    
-    if (currentProject?.chatHistory[stage]?.length) {
-      const history = currentProject.chatHistory[stage]
+
+    const history = currentProject?.chatHistory[stage] || []
+
+    if (history.length) {
       // 从项目加载历史消息
       setMessages(history)
-      
+
       // 检查是否有完整的对话历史
       const userMessages = history.filter(m => m.role === 'user')
       const assistantMessages = history.filter(m => m.role === 'assistant')
       setHasStartedCreation(userMessages.length > 0 && assistantMessages.length > 0)
     } else {
       // 普通模式：显示欢迎消息
-      setMessages([{
-        id: 'welcome',
-        role: 'assistant',
-        content: config.greeting,
-        timestamp: new Date().toISOString(),
-      }])
+      setMessages([
+        {
+          id: 'welcome',
+          role: 'assistant',
+          content: config.greeting,
+          timestamp: new Date().toISOString(),
+        },
+      ])
       setHasStartedCreation(false)
+
+      // 分镜/设计阶段：从上一阶段已完成进入，首次引导用户点击发送
+      if (stage === 'storyboard' || stage === 'imageDesigner') {
+        const prevStage: ProjectStage = stage === 'storyboard' ? 'screenwriter' : 'storyboard'
+        const prevCompleted = hasStageOutput(currentProject, prevStage)
+        const currentCompleted = hasStageOutput(currentProject, stage)
+
+        // 若用户已尝试过“开始”，则不再重复引导（避免失败重进时反复弹）
+        const key = getStartSendGuideStorageKey(currentProject.meta.id, stage)
+        let tried = false
+        try {
+          tried = localStorage.getItem(key) === '1'
+        } catch {
+          // ignore
+        }
+
+        if (prevCompleted && !currentCompleted && !tried) {
+          setInput('开始')
+          setShowStartSendGuide(true)
+        }
+      }
     }
   }, [stage, currentProject, config.greeting])
 
@@ -433,10 +495,21 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
 
   // 发送消息（使用 input 状态）
   const handleSend = useCallback(() => {
-    if (input.trim()) {
-      sendMessage(input)
+    if (!input.trim()) return
+
+    // 记录一次“已尝试开始”，避免再次进入时重复弹引导
+    if (showStartSendGuide && currentProject && (stage === 'storyboard' || stage === 'imageDesigner')) {
+      const key = getStartSendGuideStorageKey(currentProject.meta.id, stage)
+      try {
+        localStorage.setItem(key, '1')
+      } catch {
+        // ignore
+      }
+      setShowStartSendGuide(false)
     }
-  }, [input, sendMessage])
+
+    sendMessage(input)
+  }, [input, sendMessage, showStartSendGuide, currentProject, stage])
 
   // 开始创作（编剧快捷操作）
   const handleStartCreation = useCallback(() => {
@@ -1123,13 +1196,23 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
           disabled={isLoading}
         />
         <div className="chat-actions">
-          <button 
-            className="send-btn"
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading}
-          >
-            发送
-          </button>
+          <div className="send-btn-wrapper">
+            {showStartSendGuide && !isLoading && input.trim() === '开始' && (
+              <div className="send-guide">
+                <div className="send-guide-content">
+                  <span className="send-guide-icon">👇</span>
+                  <span className="send-guide-text">点击「发送」开始</span>
+                </div>
+              </div>
+            )}
+            <button 
+              className="send-btn"
+              onClick={handleSend}
+              disabled={!input.trim() || isLoading}
+            >
+              发送
+            </button>
+          </div>
         </div>
       </div>
     </div>
