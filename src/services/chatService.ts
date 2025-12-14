@@ -47,8 +47,8 @@ export async function sendChatMessage(
   options: ChatOptions = {}
 ): Promise<ChatResponse> {
   const {
-    model = 'openai',
-    temperature = 1, // Pollinations API 不支持其他值
+    model = 'gpt-5-nano',
+    temperature = 1, // Replicate Claude API
     maxRetries = 3,
     contextData,
   } = options;

@@ -132,3 +132,18 @@ export {
   type GenerateAllVideosOptions,
   type GenerateAllVideosResult,
 } from './directorService';
+
+// 任务轮询服务
+export {
+  submitTask,
+  queryTaskStatus,
+  pollTaskUntilComplete,
+  submitAndWait,
+  type TaskType,
+  type TaskStatus,
+  type SubmitTaskParams,
+  type SubmitTaskResponse,
+  type TaskStatusResponse,
+  type PollOptions,
+  type PollResult,
+} from './taskPolling';

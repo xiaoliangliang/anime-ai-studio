@@ -65,30 +65,36 @@ export function extractJSON(text: string): unknown | null {
     return null;
   }
 
+  // 调试：打印原始内容前500字符
+  console.log('[extractJSON] 原始内容前500字符:', text.substring(0, 500));
+  console.log('[extractJSON] 原始内容后200字符:', text.substring(text.length - 200));
+
   // 1. 尝试直接解析（纯 JSON）
   try {
     return JSON.parse(text.trim());
-  } catch {
-    // 继续尝试其他方式
+  } catch (e) {
+    console.log('[extractJSON] 直接解析失败:', (e as Error).message?.substring(0, 100));
   }
 
   // 2. 尝试从 markdown 代码块中提取
   const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (codeBlockMatch) {
+    console.log('[extractJSON] 找到代码块, 长度:', codeBlockMatch[1].length);
     try {
       return JSON.parse(codeBlockMatch[1].trim());
-    } catch {
-      // 继续尝试其他方式
+    } catch (e) {
+      console.log('[extractJSON] 代码块解析失败:', (e as Error).message?.substring(0, 100));
     }
   }
 
   // 3. 尝试匹配最外层的 { } 或 [ ]
   const jsonMatch = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
   if (jsonMatch) {
+    console.log('[extractJSON] 正则匹配到JSON, 长度:', jsonMatch[1].length);
     try {
       return JSON.parse(jsonMatch[1]);
-    } catch {
-      // 继续尝试修复
+    } catch (e) {
+      console.log('[extractJSON] 正则匹配解析失败:', (e as Error).message?.substring(0, 100));
     }
   }
 
@@ -105,6 +111,8 @@ export function extractJSON(text: string): unknown | null {
 
   // 查找 JSON 开始位置
   const jsonStart = cleaned.search(/[\[{]/);
+  console.log('[extractJSON] JSON开始位置:', jsonStart);
+  
   if (jsonStart !== -1) {
     cleaned = cleaned.slice(jsonStart);
     
@@ -145,16 +153,57 @@ export function extractJSON(text: string): unknown | null {
       }
     }
     
+    console.log('[extractJSON] 括号匹配结束位置:', endPos, '最终depth:', depth);
+    
     if (endPos !== -1) {
+      const jsonStr = cleaned.slice(0, endPos);
       try {
-        return JSON.parse(cleaned.slice(0, endPos));
-      } catch {
-        // 最后尝试失败
+        return JSON.parse(jsonStr);
+      } catch (e) {
+        console.log('[extractJSON] 括号匹配解析失败:', (e as Error).message);
+        // 尝试修复常见JSON错误
+        const fixed = fixCommonJSONErrors(jsonStr);
+        if (fixed !== jsonStr) {
+          try {
+            console.log('[extractJSON] 尝试修复后解析...');
+            return JSON.parse(fixed);
+          } catch (e2) {
+            console.log('[extractJSON] 修复后仍失败:', (e2 as Error).message);
+          }
+        }
+      }
+    } else if (depth > 0) {
+      // JSON 不完整（被截断），尝试补全括号
+      console.log('[extractJSON] JSON不完整，尝试补全括号, 缺少深度:', depth);
+      let fixedJson = cleaned;
+      for (let i = 0; i < depth; i++) {
+        // 根据开始字符决定补什么
+        fixedJson += cleaned[0] === '[' ? ']' : '}';
+      }
+      try {
+        return JSON.parse(fixedJson);
+      } catch (e) {
+        console.log('[extractJSON] 补全后解析失败:', (e as Error).message?.substring(0, 100));
       }
     }
   }
 
   return null;
+}
+
+/**
+ * 修复常见的 JSON 语法错误
+ */
+function fixCommonJSONErrors(jsonStr: string): string {
+  let fixed = jsonStr;
+  
+  // 移除尾随逗号 (trailing commas)
+  fixed = fixed.replace(/,\s*([\]\}])/g, '$1');
+  
+  // 修复单引号为双引号 (简单情况)
+  // fixed = fixed.replace(/'([^']*)':/g, '"$1":');
+  
+  return fixed;
 }
 
 /**

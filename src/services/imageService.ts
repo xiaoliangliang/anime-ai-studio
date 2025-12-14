@@ -1,9 +1,10 @@
 /**
  * 图片生成服务
- * 调用 /api/txt2img 和 /api/img2img 端点
+ * 使用 RunComfy 异步任务模式
  */
 
 import { saveAsset, updateAssetCloudUrl } from './storageService';
+import { submitAndWait } from './taskPolling';
 import type { Asset } from '@/types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -26,7 +27,7 @@ export interface GenerateImageResult {
 }
 
 /**
- * 文生图 - 使用 RunComfy Seedream 4.5 API
+ * 文生图 - 使用 RunComfy Seedream 4.5 API（异步模式）
  */
 export async function generateImageFromText(
   projectId: string,
@@ -42,29 +43,33 @@ export async function generateImageFromText(
   const resolution = getRunComfyResolution(width, height);
 
   try {
-    const response = await fetch(`${API_BASE}/api/runcomfy/txt2img`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    // 使用异步模式：提交任务 + 轮询等待
+    const pollResult = await submitAndWait(
+      {
+        type: 'txt2img',
         prompt,
         resolution,
-      }),
-    });
+      },
+      {
+        maxAttempts: 120, // 约2分钟
+        interval: 1000,
+      }
+    );
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP ${response.status}`);
+    if (!pollResult.success || !pollResult.result?.imageUrl) {
+      throw new Error(pollResult.error || '图片生成失败');
     }
 
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.startsWith('image/')) {
-      throw new Error('返回非图片内容');
+    const imageUrl = pollResult.result.imageUrl;
+
+    // 下载图片并保存
+    const imageResponse = await fetch(imageUrl);
+    if (!imageResponse.ok) {
+      throw new Error('下载图片失败');
     }
 
-    // 获取图片 blob
-    const blob = await response.blob();
+    const blob = await imageResponse.blob();
+    const contentType = imageResponse.headers.get('content-type') || 'image/png';
     const base64 = await blobToBase64(blob);
 
     // 保存到 IndexedDB
@@ -101,7 +106,7 @@ export async function generateImageFromText(
 }
 
 /**
- * 图生图 - 使用 RunComfy Seedream 4.5 Edit API
+ * 图生图 - 使用 RunComfy Seedream 4.5 Edit API（异步模式）
  */
 export async function generateImageFromImage(
   projectId: string,
@@ -118,29 +123,34 @@ export async function generateImageFromImage(
   const resolution = getRunComfyResolution(width, height);
 
   try {
-    const response = await fetch(`${API_BASE}/api/runcomfy/img2img`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    // 使用异步模式：提交任务 + 轮询等待
+    const pollResult = await submitAndWait(
+      {
+        type: 'img2img',
         prompt,
         images: [referenceImageUrl],
         resolution,
-      }),
-    });
+      },
+      {
+        maxAttempts: 120, // 约2分钟
+        interval: 1000,
+      }
+    );
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP ${response.status}`);
+    if (!pollResult.success || !pollResult.result?.imageUrl) {
+      throw new Error(pollResult.error || '图片生成失败');
     }
 
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.startsWith('image/')) {
-      throw new Error('返回非图片内容');
+    const imageUrl = pollResult.result.imageUrl;
+
+    // 下载图片并保存
+    const imageResponse = await fetch(imageUrl);
+    if (!imageResponse.ok) {
+      throw new Error('下载图片失败');
     }
 
-    const blob = await response.blob();
+    const blob = await imageResponse.blob();
+    const contentType = imageResponse.headers.get('content-type') || 'image/png';
     const base64 = await blobToBase64(blob);
 
     const asset = await saveAsset({
@@ -337,17 +347,16 @@ function getRunComfyResolution(width: number, height: number): string {
 async function uploadToImgbb(base64Data: string): Promise<string | null> {
   try {
     // 移除 data:image/xxx;base64, 前缀
-    const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
+    const base64Match = base64Data.match(/^data:image\/[^;]+;base64,(.+)$/);
+    const cleanBase64 = base64Match ? base64Match[1] : base64Data;
 
-    const formData = new URLSearchParams();
-    formData.append('image', cleanBase64);
-
+    // 使用 urlencoded 格式发送，与 budemo 保持一致
     const response = await fetch(`${API_BASE}/api/imgbb/upload`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: formData.toString(),
+      body: `image=${encodeURIComponent(cleanBase64)}`,
     });
 
     const result = await response.json();

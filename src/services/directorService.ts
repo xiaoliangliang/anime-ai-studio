@@ -10,6 +10,7 @@
  */
 
 import { saveAsset, getAsset, updateProject, getProject } from './storageService';
+import { submitAndWait } from './taskPolling';
 import type { 
   Project, 
   Shot, 
@@ -19,8 +20,6 @@ import type {
   ArtistData,
   DirectorData,
 } from '@/types';
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 // ===== 类型定义 =====
 
@@ -190,7 +189,7 @@ export function buildVideoPrompt(shot: Shot, imageDescriptions: string[]): strin
 }
 
 /**
- * 生成单个镜头的视频
+ * 生成单个镜头的视频（异步模式）
  */
 export async function generateShotVideo(
   projectId: string,
@@ -204,35 +203,30 @@ export async function generateShotVideo(
       resolution: params.resolution,
     });
 
-    // 调用 ref2video API
-    const response = await fetch(`${API_BASE}/api/runcomfy/ref2video`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    // 使用异步模式：提交任务 + 轮询等待
+    const pollResult = await submitAndWait(
+      {
+        type: 'ref2video',
         images: params.images,
         text: params.text,
         duration: params.duration,
         resolution: params.resolution,
         ratio: params.ratio,
         seed: params.seed,
-      }),
-      signal: abortSignal,
-    });
+      },
+      {
+        maxAttempts: 180, // 约3分钟
+        interval: 1000,
+        abortSignal,
+      }
+    );
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP ${response.status}`);
+    if (!pollResult.success || !pollResult.result?.videoUrl) {
+      throw new Error(pollResult.error || '视频生成失败');
     }
 
-    const result = await response.json();
-
-    if (!result.success || !result.videoUrl) {
-      throw new Error(result.error || '视频生成失败');
-    }
-
-    console.log(`视频生成成功: ${params.shotNumber}`, result.videoUrl);
+    const videoUrl = pollResult.result.videoUrl;
+    console.log(`视频生成成功: ${params.shotNumber}`, videoUrl);
 
     // 保存视频资产到 IndexedDB
     const asset = await saveAsset({
@@ -240,7 +234,7 @@ export async function generateShotVideo(
       type: 'video',
       mimeType: 'video/mp4',
       size: 0, // URL视频无法获取大小
-      cloudUrl: result.videoUrl,
+      cloudUrl: videoUrl,
       uploadStatus: 'uploaded', // 已在云端
       duration: params.duration,
     });
@@ -254,7 +248,7 @@ export async function generateShotVideo(
       assetId: asset.id,
       status: 'completed',
       duration: params.duration,
-      videoUrl: result.videoUrl,
+      videoUrl: videoUrl,
       prompt: params.text,
       referenceImages: params.images,
       isStale: false,

@@ -198,9 +198,9 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
         } as any;
 
         console.log('[MainLayout] 图像设计数据已保存:', {
-          characters: updatedProject.imageDesigner.characterPrompts.length,
-          scenes: updatedProject.imageDesigner.scenePrompts.length,
-          keyframes: updatedProject.imageDesigner.keyframePrompts.length,
+          characters: characterPrompts.length,
+          scenes: scenePrompts.length,
+          keyframes: keyframePrompts.length,
         })
         break
       }

@@ -13,10 +13,8 @@ export interface TextModel {
 
 /** 文生文可用模型列表 */
 export const TEXT_MODELS: TextModel[] = [
-  // 推荐模型
-  { id: 'openai', name: 'OpenAI GPT-4o', description: '通用智能，平衡速度与质量', tier: 'free', recommended: true },
-  { id: 'claude', name: 'Claude 3.5', description: '擅长写作和创意任务', tier: 'seed', recommended: true },
-  { id: 'deepseek', name: 'DeepSeek V3', description: '中文理解能力强', tier: 'free', recommended: true },
+  // 推荐模型 - 使用 Replicate GPT-5 Nano (最快)
+  { id: 'gpt-5-nano', name: 'GPT-5 Nano', description: '最快速响应 (Replicate)', tier: 'free', recommended: true },
   
   // OpenAI 系列
   { id: 'openai-fast', name: 'OpenAI GPT-4o-mini', description: '快速响应，适合简单任务', tier: 'free' },
@@ -58,4 +56,4 @@ export function getModelById(id: string): TextModel | undefined {
 }
 
 /** 默认模型 ID */
-export const DEFAULT_TEXT_MODEL = 'openai';
+export const DEFAULT_TEXT_MODEL = 'gpt-5-nano';

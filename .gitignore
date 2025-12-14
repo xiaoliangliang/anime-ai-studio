@@ -35,5 +35,9 @@ Thumbs.db
 # Testing
 coverage/
 
+# Vercel
+.vercel/
+
 # Misc
 *.local
+.vercel

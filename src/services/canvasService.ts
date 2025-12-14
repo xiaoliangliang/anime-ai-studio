@@ -1528,7 +1528,8 @@ function renderArtistDataInternal(
   const scenePromptIds = new Set<string>(data?.prompts?.scenePrompts?.map(p => p.id) || []);
   const kfPromptIds = new Set<string>(data?.prompts?.keyframePrompts?.map(p => p.id) || []);
 
-  const filterByPrompt = (imgs: Array<{ promptId: string; status: string }> | undefined, allow: Set<string>) =>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const filterByPrompt = <T extends { promptId: string; status: string }>(imgs: T[] | undefined, allow: Set<string>): T[] =>
     (imgs || []).filter(img => img.status !== 'failed' && (allow.size === 0 || allow.has(img.promptId)));
 
   // 归类成功图片（若没有 prompts 也不做强过滤）
