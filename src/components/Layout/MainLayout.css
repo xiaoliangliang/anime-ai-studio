@@ -53,6 +53,10 @@
   gap: 4px;
 }
 
+.stage-tab-wrapper {
+  position: relative;
+}
+
 .stage-tab {
   display: flex;
   align-items: center;
@@ -62,24 +66,70 @@
   background: transparent;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.3s ease;
 }
 
 .stage-tab:hover {
   background: #f0f0f0;
 }
 
+/* 未完成阶段 - 淡化效果 */
+.stage-tab.pending {
+  opacity: 0.6;
+}
+
+.stage-tab.pending .stage-icon {
+  filter: grayscale(50%);
+}
+
+.stage-tab.pending .stage-label {
+  color: #999;
+}
+
+/* 已完成阶段 - 强调效果 */
+.stage-tab.completed {
+  opacity: 1;
+  background: linear-gradient(135deg, #52c41a10 0%, #73d13d10 100%);
+}
+
+.stage-tab.completed .stage-label {
+  color: #52c41a;
+  font-weight: 500;
+}
+
+.stage-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #52c41a;
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+  margin-right: 2px;
+}
+
+/* 当前激活阶段 */
 .stage-tab.active {
+  opacity: 1;
   background: linear-gradient(135deg, #667eea20 0%, #764ba220 100%);
+}
+
+.stage-tab.active.completed {
+  background: linear-gradient(135deg, #667eea20 0%, #52c41a15 100%);
 }
 
 .stage-icon {
   font-size: 16px;
+  transition: filter 0.3s ease;
 }
 
 .stage-label {
   font-size: 13px;
   color: #666;
+  transition: color 0.3s ease;
 }
 
 .stage-tab.active .stage-label {
@@ -91,6 +141,86 @@
   color: #ccc;
   font-size: 12px;
   margin-left: 4px;
+  transition: color 0.3s ease;
+}
+
+.stage-tab.completed .stage-arrow {
+  color: #52c41a;
+}
+
+/* 引导浮层 */
+.stage-guide {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 8px;
+  z-index: 100;
+  animation: guideAppear 0.3s ease-out, guidePulse 2s ease-in-out infinite;
+}
+
+.stage-guide-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  white-space: nowrap;
+}
+
+.stage-guide-content::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid #667eea;
+}
+
+.stage-guide-text {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.stage-guide-arrow {
+  font-size: 16px;
+  animation: bounceUp 0.6s ease-in-out infinite;
+}
+
+/* 动画 */
+@keyframes guideAppear {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes guidePulse {
+  0%, 100% {
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  }
+  50% {
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.6);
+  }
+}
+
+@keyframes bounceUp {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
 }
 
 .header-right {

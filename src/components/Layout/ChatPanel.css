@@ -266,6 +266,18 @@
   }
 }
 
+/* Loading 闪烁效果 */
+.loading-shimmer {
+  padding: 12px 16px;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+}
+
+.loading-shimmer p {
+  margin: 0;
+}
+
 /* 输入区 */
 .chat-input-area {
   padding: 16px;
@@ -556,6 +568,84 @@
 
 .start-generation-btn.keyframe-btn:hover:not(:disabled) {
   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+}
+
+/* 关键帧按钮容器 */
+.keyframe-btn-wrapper {
+  position: relative;
+}
+
+/* 关键帧生成引导气泡 */
+.keyframe-guide {
+  position: absolute;
+  top: -60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  animation: keyframeGuideAppear 0.3s ease-out, keyframeGuidePulse 2s ease-in-out infinite;
+}
+
+.keyframe-guide-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  color: white;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(139, 92, 246, 0.5);
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.keyframe-guide-content::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid #6366f1;
+}
+
+.keyframe-guide-icon {
+  font-size: 18px;
+  animation: keyframeBounce 0.6s ease-in-out infinite;
+}
+
+.keyframe-guide-text {
+  font-size: 13px;
+}
+
+@keyframes keyframeGuideAppear {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes keyframeGuidePulse {
+  0%, 100% {
+    box-shadow: 0 4px 16px rgba(139, 92, 246, 0.5);
+  }
+  50% {
+    box-shadow: 0 4px 24px rgba(139, 92, 246, 0.7);
+  }
+}
+
+@keyframes keyframeBounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
 }
 
 .start-generation-btn.generating {

@@ -14,8 +14,10 @@
   },
   "dependencies": {
     "ajv": "^8.12.0",
+    "clsx": "^2.1.1",
     "cors": "^2.8.5",
     "express": "^5.2.1",
+    "framer-motion": "^12.23.26",
     "i18next": "^25.7.2",
     "i18next-browser-languagedetector": "^8.2.0",
     "idb": "^8.0.0",
@@ -25,6 +27,7 @@
     "react-i18next": "^16.5.0",
     "react-router-dom": "^6.21.0",
     "replicate": "^1.4.0",
+    "tailwind-merge": "^3.4.0",
     "tldraw": "^2.0.0",
     "uuid": "^9.0.1"
   },

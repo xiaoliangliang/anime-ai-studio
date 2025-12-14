@@ -1,0 +1,28 @@
+/* TextShimmer 文字闪烁动效 */
+.text-shimmer {
+  display: inline-block;
+  font-size: 15px;
+  font-weight: 500;
+  color: transparent;
+  background: linear-gradient(
+    90deg,
+    #9333ea 0%,
+    #c084fc 25%,
+    #e879f9 50%,
+    #c084fc 75%,
+    #9333ea 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmer-animation linear infinite;
+}
+
+@keyframes shimmer-animation {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}

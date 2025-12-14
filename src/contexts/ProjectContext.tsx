@@ -2,9 +2,11 @@
  * 项目上下文 - 管理当前项目状态
  */
 
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, ReactNode, useRef } from 'react'
 import type { Project, ProjectStage, CreateProjectInput, ProjectListItem } from '@/types'
 import * as storage from '@/services/storageService'
+
+type ProjectUpdateInput = Project | ((prev: Project) => Project)
 
 interface ProjectContextValue {
   // 项目列表
@@ -15,7 +17,7 @@ interface ProjectContextValue {
   currentProject: Project | null;
   loadProject: (projectId: string) => Promise<void>;
   createProject: (input: CreateProjectInput) => Promise<string>;
-  updateProject: (project: Project) => Promise<void>;
+  updateProject: (project: ProjectUpdateInput) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   renameProject: (projectId: string, newName: string) => Promise<void>;
   
@@ -33,6 +35,9 @@ const ProjectContext = createContext<ProjectContextValue | null>(null)
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<ProjectListItem[]>([])
   const [currentProject, setCurrentProject] = useState<Project | null>(null)
+  const currentProjectRef = useRef<Project | null>(null)
+  currentProjectRef.current = currentProject
+
   const [currentStage, setCurrentStage] = useState<ProjectStage>('screenwriter')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -90,13 +95,25 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // 更新项目
-  const updateCurrentProject = useCallback(async (project: Project) => {
+  // 更新项目（支持传入 updater，避免并发更新覆盖）
+  const updateCurrentProject = useCallback(async (projectOrUpdater: ProjectUpdateInput) => {
     setIsLoading(true)
     setError(null)
     try {
-      await storage.updateProject(project)
-      setCurrentProject(project)
+      const base = currentProjectRef.current
+      const nextProject = typeof projectOrUpdater === 'function'
+        ? (() => {
+            if (!base) throw new Error('当前没有加载的项目')
+            return projectOrUpdater(base)
+          })()
+        : projectOrUpdater
+
+      await storage.updateProject(nextProject)
+
+      // 立刻更新 ref，避免同一事件循环内的连续更新读到旧值
+      currentProjectRef.current = nextProject
+      setCurrentProject(nextProject)
+
       // 刷新项目列表
       const projectList = await storage.getProjectList()
       setProjects(projectList)

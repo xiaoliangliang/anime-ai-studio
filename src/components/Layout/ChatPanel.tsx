@@ -24,7 +24,17 @@ import {
   getDirectorStats,
   type VideoGenerationProgress,
 } from '@/services/directorService'
+import { TextShimmer } from '@/components/ui/text-shimmer'
 import './ChatPanel.css'
+
+// 各阶段 loading 文案配置
+const STAGE_LOADING_TEXT: Record<ProjectStage, string> = {
+  screenwriter: '编剧创作中...',
+  storyboard: '分镜师创作中...',
+  imageDesigner: '图像提示词创作中...',
+  artist: '图像生成中...',
+  director: '视频生成中...',
+}
 
 interface ChatPanelProps {
   projectId: string
@@ -33,6 +43,8 @@ interface ChatPanelProps {
   autoStart?: boolean // 从首页进入时自动开始创作
   initialMessage?: string // 首页传来的初始消息
   onArtistProgress?: (progress: GenerationProgress) => void // 美工阶段进度回调
+  showKeyframeGuide?: boolean // 是否显示关键帧生成引导
+  onKeyframeGuideClick?: () => void // 点击关键帧引导后的回调
 }
 
 // 编剧快捷选项配置
@@ -110,7 +122,7 @@ const STAGE_CONFIG: Record<ProjectStage, { name: string; icon: string; greeting:
   },
 }
 
-export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart, initialMessage, onArtistProgress }: ChatPanelProps) {
+export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart, initialMessage, onArtistProgress, showKeyframeGuide, onKeyframeGuideClick }: ChatPanelProps) {
   // Debug: 输出接收到的 props
   console.log('[ChatPanel] props:', { projectId, stage, autoStart, initialMessage })
   
@@ -127,7 +139,8 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   const [selectedEpisodes, setSelectedEpisodes] = useState(5)
   const [selectedGenre, setSelectedGenre] = useState('fantasy_cultivation')
   const [selectedAudience, setSelectedAudience] = useState('男频')
-  const [hasStartedCreation, setHasStartedCreation] = useState(false)
+  // 如果是 autoStart 模式，初始就标记为已开始创作，避免显示快捷选项
+  const [hasStartedCreation, setHasStartedCreation] = useState(autoStart === true)
   
   // 美工阶段状态
   const [isGeneratingImages, setIsGeneratingImages] = useState(false)
@@ -149,6 +162,8 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
 
   // 记录是否已初始化（按阶段和项目ID）
   const initializedKeyRef = useRef<string | null>(null)
+  // 记录是否已发送过 autoStart 请求（防止重复发送）
+  const autoStartSentRef = useRef<string | null>(null)
   
   // 初始化消息 - 仅在阶段切换或首次加载时执行
   useEffect(() => {
@@ -192,7 +207,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
       const assistantMessages = history.filter(m => m.role === 'assistant')
       setHasStartedCreation(userMessages.length > 0 && assistantMessages.length > 0)
     } else {
-      // 显示欢迎消息
+      // 普通模式：显示欢迎消息
       setMessages([{
         id: 'welcome',
         role: 'assistant',
@@ -203,6 +218,30 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
     }
   }, [stage, currentProject, config.greeting])
 
+  // autoStart 模式：从首页进入时自动发送一次请求
+  useEffect(() => {
+    if (!autoStart || !initialMessage || !currentProject || stage !== 'screenwriter') return
+    
+    // 已有历史记录，不需要自动发送
+    if (currentProject.chatHistory[stage]?.length) return
+    
+    // 防止重复发送
+    const key = `sent-${currentProject.meta.id}`
+    if (autoStartSentRef.current === key) return
+    autoStartSentRef.current = key
+    
+    // 构建 prompt
+    const genre = currentProject.meta.type || '玄幻修仙'
+    const episodes = currentProject.meta.totalEpisodes || 5
+    const audienceMap: Record<string, string> = { 'male': '男频', 'female': '女频', 'general': '通用' }
+    const audience = audienceMap[currentProject.meta.targetAudience || 'male'] || '男频'
+    const prompt = `${initialMessage}\n\n【参数确认】题材：${genre}，集数：${episodes}集，受众：${audience}。请帮我确定创意并输出状态摘要v1.0。`
+    
+    // 直接调用 sendMessage
+    sendMessage(prompt)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, currentProject?.meta.id])
+
   // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -211,17 +250,15 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   // 保存聊天记录到项目
   const saveChatHistory = useCallback(async (newMessages: ChatMessage[]) => {
     if (!currentProject) return
-    
-    const updatedProject = {
-      ...currentProject,
-      chatHistory: {
-        ...currentProject.chatHistory,
-        [stage]: newMessages,
-      },
-    }
-    
+
     try {
-      await updateProject(updatedProject)
+      await updateProject(prev => ({
+        ...prev,
+        chatHistory: {
+          ...prev.chatHistory,
+          [stage]: newMessages,
+        },
+      }))
     } catch (err) {
       console.error('保存聊天记录失败:', err)
     }
@@ -341,8 +378,14 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
           content: response.message.content,
           timestamp: new Date().toISOString(),
         }
+        const successTip: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: '✅ 已生成，请从页面顶部点击进入下一个阶段',
+          timestamp: new Date().toISOString(),
+        }
         
-        const updatedMessages = [...newMessages, aiMessage]
+        const updatedMessages = [...newMessages, aiMessage, successTip]
         setMessages(updatedMessages)
         
         // 保存聊天记录
@@ -353,10 +396,15 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
         if (response.data && onDataGenerated) {
           console.log('[ChatPanel] 触发 onDataGenerated 回调')
           onDataGenerated(response.data)
-        } else {
-          console.log('[ChatPanel] 无数据或无回调: data=', !!response.data, 'callback=', !!onDataGenerated)
         }
       } else {
+        const errorMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: `❌ 生成失败：${response.error || 'AI 响应失败'}`,
+          timestamp: new Date().toISOString(),
+        }
+        setMessages(prev => [...prev, errorMessage])
         setError(response.error || 'AI 响应失败')
       }
     } catch (err) {
@@ -648,38 +696,6 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
     }
   }, [projectId, currentProject, isGeneratingVideos, videoResolution, videoAspectRatio, loadProject])
 
-  // 自动触发初始消息发送（从首页进入时）- 使用 sessionStorage 防止重复触发
-  useEffect(() => {
-    // 条件：从首页进入且有初始消息，且在编剧阶段
-    if (!autoStart || !initialMessage || !currentProject || isLoading || stage !== 'screenwriter') return
-    
-    // 使用 sessionStorage 检查是否已经触发过（防止 React StrictMode 双重渲染）
-    const autoStartKey = `autoStart-${currentProject.meta.id}`
-    if (sessionStorage.getItem(autoStartKey)) {
-      console.log('[ChatPanel] sessionStorage 已有标记，跳过自动发送')
-      return
-    }
-    
-    // 标记已触发
-    sessionStorage.setItem(autoStartKey, 'true')
-    setHasStartedCreation(true)
-    
-    // 直接使用项目元数据中的值
-    const genre = currentProject.meta.type || '玄幻修仙'
-    const episodes = currentProject.meta.totalEpisodes || 5
-    const audienceMap: Record<string, string> = { 'male': '男频', 'female': '女频', 'general': '通用' }
-    const audience = audienceMap[currentProject.meta.targetAudience || 'male'] || '男频'
-    
-    // 构建 prompt
-    const prompt = `${initialMessage}\n\n【参数确认】题材：${genre}，集数：${episodes}集，受众：${audience}。请帮我确定创意并输出状态摘要v1.0。`
-    
-    console.log('[ChatPanel] 自动发送消息:', prompt.substring(0, 50) + '...')
-    
-    // 直接调用 sendMessage
-    sendMessage(prompt)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStart, initialMessage, currentProject?.meta.id, isLoading, stage, sendMessage])
-
   // 处理键盘事件
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -728,10 +744,10 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
         {isLoading && (
           <div className="message assistant">
             <div className="message-avatar">{config.icon}</div>
-            <div className="message-content">
-              <div className="typing-indicator">
-                <span></span><span></span><span></span>
-              </div>
+            <div className="message-content loading-shimmer">
+              <TextShimmer duration={1.5}>
+                {STAGE_LOADING_TEXT[stage]}
+              </TextShimmer>
             </div>
           </div>
         )}
@@ -1022,23 +1038,38 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
                 </button>
                 
                 {/* 第二步：生成关键帧（需要角色和场景图完成后才能点击） */}
-                <button 
-                  className="start-generation-btn keyframe-btn"
-                  onClick={handleGenerateKeyframes}
-                  disabled={
-                    !currentProject?.imageDesigner || 
-                    isGeneratingImages ||
-                    !currentProject?.artist?.characterImages?.length ||
-                    !currentProject?.artist?.sceneImages?.length
-                  }
-                >
-                  {isGeneratingImages && batchProgress?.phase === 'keyframes'
-                    ? `⟳ 生成中... ${batchProgress?.completed || 0}/${batchProgress?.total || 0}` 
-                    : artistStats && artistStats.completedKeyframes > 0
-                      ? `🔄 重新生成关键帧 (${artistStats.completedKeyframes}/${artistStats.totalKeyframes})`
-                      : `🎬 批量生成关键帧 (${artistStats?.totalKeyframes || 0})`
-                  }
-                </button>
+                <div className="keyframe-btn-wrapper">
+                  <button 
+                    className="start-generation-btn keyframe-btn"
+                    onClick={() => {
+                      onKeyframeGuideClick?.()
+                      handleGenerateKeyframes()
+                    }}
+                    disabled={
+                      !currentProject?.imageDesigner || 
+                      isGeneratingImages ||
+                      !currentProject?.artist?.characterImages?.length ||
+                      !currentProject?.artist?.sceneImages?.length
+                    }
+                  >
+                    {isGeneratingImages && batchProgress?.phase === 'keyframes'
+                      ? `⟳ 生成中... ${batchProgress?.completed || 0}/${batchProgress?.total || 0}` 
+                      : artistStats && artistStats.completedKeyframes > 0
+                        ? `🔄 重新生成关键帧 (${artistStats.completedKeyframes}/${artistStats.totalKeyframes})`
+                        : `🎬 批量生成关键帧 (${artistStats?.totalKeyframes || 0})`
+                    }
+                  </button>
+                  
+                  {/* 关键帧生成引导气泡 */}
+                  {showKeyframeGuide && !isGeneratingImages && (
+                    <div className="keyframe-guide">
+                      <div className="keyframe-guide-content">
+                        <span className="keyframe-guide-icon">👇</span>
+                        <span className="keyframe-guide-text">角色和场景图已完成，点击这里继续生成关键帧！</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>
