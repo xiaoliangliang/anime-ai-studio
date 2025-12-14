@@ -900,7 +900,7 @@ export function renderStoryboardData(
         text: headers[i],
         size: 's',
         font: 'sans',
-        color: 'white',
+        color: 'black',
       },
     });
     headerX += colWidths[i];
@@ -1159,7 +1159,7 @@ export function renderImageDesignerData(
     });
     editor.createShape({
       type: 'text', x: area.x + 30, y: currentY + 6,
-      props: { text: '👤 人物参考图', size: 's', font: 'sans', color: 'white' }
+      props: { text: '👤 人物参考图', size: 's', font: 'sans', color: 'black' }
     });
     currentY += 45;
 
@@ -1209,7 +1209,7 @@ export function renderImageDesignerData(
     });
     editor.createShape({
       type: 'text', x: area.x + 30, y: currentY + 6,
-      props: { text: '🏙️ 场景参考图', size: 's', font: 'sans', color: 'white' }
+      props: { text: '🏙️ 场景参考图', size: 's', font: 'sans', color: 'black' }
     });
     currentY += 45;
 
@@ -1259,7 +1259,7 @@ export function renderImageDesignerData(
     });
     editor.createShape({
       type: 'text', x: area.x + 30, y: currentY + 6,
-      props: { text: '🖼️ 关键帧提示词', size: 's', font: 'sans', color: 'white' }
+      props: { text: '🖼️ 关键帧提示词', size: 's', font: 'sans', color: 'black' }
     });
     currentY += 45;
 
@@ -1288,7 +1288,7 @@ export function renderImageDesignerData(
     // 表头文字
     let hx = tableX + 8;
     headers.forEach((h, i) => {
-      editor.createShape({ type: 'text', x: hx, y: currentY + 8, props: { text: h, size: 's', font: 'sans', color: 'white' } });
+      editor.createShape({ type: 'text', x: hx, y: currentY + 8, props: { text: h, size: 's', font: 'sans', color: 'black' } });
       hx += colWidths[i];
     });
     currentY += headerH;
@@ -1664,7 +1664,7 @@ function renderArtistDataInternal(
     });
     editor.createShape({
       type: 'text', x: area.x + 30, y: currentY + 6,
-      props: { text: '👤 角色参考图', size: 's', font: 'sans', color: 'white' }
+      props: { text: '👤 角色参考图', size: 's', font: 'sans', color: 'black' }
     });
     currentY += 50;
 
@@ -1775,7 +1775,7 @@ function renderArtistDataInternal(
     });
     editor.createShape({
       type: 'text', x: area.x + 30, y: currentY + 6,
-      props: { text: '🏙️ 场景参考图', size: 's', font: 'sans', color: 'white' }
+      props: { text: '🏙️ 场景参考图', size: 's', font: 'sans', color: 'black' }
     });
     currentY += 50;
 
@@ -1884,7 +1884,7 @@ function renderArtistDataInternal(
     });
     editor.createShape({
       type: 'text', x: area.x + 30, y: currentY + 6,
-      props: { text: '🎬 关键帧图片', size: 's', font: 'sans', color: 'white' }
+      props: { text: '🎬 关键帧图片', size: 's', font: 'sans', color: 'black' }
     });
     currentY += 50;
 

@@ -28,6 +28,33 @@ export default function HomePage() {
     }
   }, [isZh, i18n])
 
+  // Dynamic TDK based on language
+  useEffect(() => {
+    if (isZh) {
+      document.title = 'Anime AI Studio - AI漫剧创作平台 | AI视频生成 | AI绘图'
+      document.querySelector('meta[name="description"]')?.setAttribute('content', 
+        'Anime AI Studio 是全球首款基于无限画布的一站式AI漫剧创作平台。提供AI视频生成、AI绘图、AI剧本创作、AI分镜设计等一站式服务，让漫剧创作更简单。')
+      document.querySelector('meta[name="keywords"]')?.setAttribute('content',
+        'Anime AI, AI Studio, Anime AI Studio, AI视频生成, AI绘图, AI漫画, AI短剧, AI剧本, AI分镜, 无限画布, AIGC, AI动漫, manga generator, anime generator, AI video')
+      document.querySelector('meta[property="og:title"]')?.setAttribute('content', 'Anime AI Studio - 全球首款无限画布AI漫剧创作平台')
+      document.querySelector('meta[property="og:description"]')?.setAttribute('content', '一站式AI漫剧创作平台，提供AI视频生成、AI绘图、AI剧本、AI分镜等功能')
+      document.querySelector('meta[name="twitter:title"]')?.setAttribute('content', 'Anime AI Studio - AI漫剧创作平台')
+      document.querySelector('meta[name="twitter:description"]')?.setAttribute('content', '全球首款基于无限画布的一站式AI漫剧创作平台')
+      document.documentElement.lang = 'zh-CN'
+    } else {
+      document.title = 'Anime AI Studio - AI Manga & Drama Creation Platform | AI Video | AI Art'
+      document.querySelector('meta[name="description"]')?.setAttribute('content',
+        'Anime AI Studio is the world\'s first infinite canvas AI manga and drama creation platform. Create AI-powered videos, artwork, scripts, and storyboards in one place.')
+      document.querySelector('meta[name="keywords"]')?.setAttribute('content',
+        'Anime AI, AI Studio, Anime AI Studio, AI video generator, AI art generator, AI manga, AI anime, AI storyboard, AI script writer, manga creator, anime maker, AIGC, AI drawing')
+      document.querySelector('meta[property="og:title"]')?.setAttribute('content', 'Anime AI Studio - World\'s First Infinite Canvas AI Manga Creation Platform')
+      document.querySelector('meta[property="og:description"]')?.setAttribute('content', 'All-in-one AI manga creation platform with AI video, AI art, AI script, and AI storyboard')
+      document.querySelector('meta[name="twitter:title"]')?.setAttribute('content', 'Anime AI Studio - AI Manga & Drama Creation Platform')
+      document.querySelector('meta[name="twitter:description"]')?.setAttribute('content', 'World\'s first infinite canvas AI manga and drama creation platform')
+      document.documentElement.lang = 'en'
+    }
+  }, [isZh])
+
   const handleLanguageSwitch = (lang: string) => {
     const currentPath = location.pathname
     // If switching to en and not already en
