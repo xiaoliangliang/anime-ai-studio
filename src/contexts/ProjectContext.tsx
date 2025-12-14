@@ -76,6 +76,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     try {
       const project = await storage.createProject(input)
       setCurrentProject(project)
+      // 新项目始终从编剧阶段开始
+      setCurrentStage('screenwriter')
       // 刷新项目列表
       const projectList = await storage.getProjectList()
       setProjects(projectList)
