@@ -164,6 +164,8 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   const initializedKeyRef = useRef<string | null>(null)
   // 记录是否已发送过 autoStart 请求（防止重复发送）
   const autoStartSentRef = useRef<string | null>(null)
+  // 发送请求锁（防止同一时刻重复请求）
+  const sendLockRef = useRef(false)
   
   // 初始化消息 - 仅在阶段切换或首次加载时执行
   useEffect(() => {
@@ -225,10 +227,20 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
     // 已有历史记录，不需要自动发送
     if (currentProject.chatHistory[stage]?.length) return
     
-    // 防止重复发送
-    const key = `sent-${currentProject.meta.id}`
+    // 防止重复发送（useRef + sessionStorage，兼容 StrictMode 重复挂载）
+    const key = `autoStart:screenwriter:${currentProject.meta.id}`
     if (autoStartSentRef.current === key) return
+    try {
+      if (sessionStorage.getItem(key) === '1') return
+    } catch {
+      // sessionStorage 可能在某些环境不可用（如隐私模式），忽略即可
+    }
     autoStartSentRef.current = key
+    try {
+      sessionStorage.setItem(key, '1')
+    } catch {
+      // ignore
+    }
     
     // 构建 prompt
     const genre = currentProject.meta.type || '玄幻修仙'
@@ -329,7 +341,9 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
 
   // 发送消息的核心逻辑（可以直接传入消息内容）
   const sendMessage = useCallback(async (messageContent: string) => {
-    if (!messageContent.trim() || isLoading) return
+    if (!messageContent.trim()) return
+    if (sendLockRef.current) return
+    sendLockRef.current = true
     
     // 立即隐藏快捷选项
     setHasStartedCreation(true)
@@ -364,11 +378,12 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
 
       // 调用 AI 服务
       console.log('[ChatPanel] 发送消息, 历史记录数:', historyMessages.length, '上下文:', contextData)
+      const maxRetries = stage === 'screenwriter' ? 1 : 2
       const response: ChatResponse = await sendChatMessage(
         messageContent,
         stage,
         historyMessages,
-        { maxRetries: 2, model: selectedModel, contextData }
+        { maxRetries, model: selectedModel, contextData }
       )
 
       if (response.success && response.message) {
@@ -411,9 +426,10 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
       console.error('发送消息失败:', err)
       setError(err instanceof Error ? err.message : '发送失败')
     } finally {
+      sendLockRef.current = false
       setIsLoading(false)
     }
-  }, [isLoading, messages, stage, getContextData, selectedModel, saveChatHistory, onDataGenerated])
+  }, [messages, stage, getContextData, selectedModel, saveChatHistory, onDataGenerated])
 
   // 发送消息（使用 input 状态）
   const handleSend = useCallback(() => {

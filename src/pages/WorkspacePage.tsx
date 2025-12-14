@@ -18,7 +18,7 @@ export default function WorkspacePage() {
   const navigate = useNavigate()
   const location = useLocation()
   const locationState = location.state as LocationState | null
-  const { currentProject: _currentProject, loadProject, isLoading, error } = useProject()
+  const { currentProject, loadProject, isLoading, error } = useProject()
 
   useEffect(() => {
     if (projectId) {
@@ -26,8 +26,9 @@ export default function WorkspacePage() {
     }
   }, [projectId, loadProject])
 
-  // 加载中状态
-  if (isLoading) {
+  // 只在首次进入、项目尚未加载完成时显示全屏加载
+  // 避免在后台保存/刷新项目时卸载 MainLayout（会导致 tldraw 画布状态丢失）
+  if (isLoading && !currentProject) {
     return (
       <div className="workspace-loading">
         <div className="loading-spinner" />
@@ -36,8 +37,8 @@ export default function WorkspacePage() {
     )
   }
 
-  // 错误状态
-  if (error) {
+  // 只有在没有可用项目数据时，才显示致命错误页
+  if (error && !currentProject) {
     return (
       <div className="workspace-error">
         <h2>😢 加载失败</h2>

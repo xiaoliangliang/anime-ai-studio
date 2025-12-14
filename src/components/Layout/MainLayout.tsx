@@ -31,9 +31,11 @@ function isStageCompleted(project: Project | null, stageId: ProjectStage): boole
   if (!project) return false
   
   switch (stageId) {
-    case 'screenwriter':
-      // 编剧阶段：有大纲或剧本数据
-      return !!(project.screenwriter?.outline?.length || project.screenwriter?.scripts?.length)
+    case 'screenwriter': {
+      // 编剧阶段：兼容旧版（outline/scripts）和新版（episodes）数据结构
+      const sw: any = project.screenwriter
+      return !!(sw?.outline?.length || sw?.scripts?.length || sw?.episodes?.length)
+    }
     case 'storyboard':
       // 分镜阶段：有分镜集且有镜头
       return !!(project.storyboard?.episodes?.some(ep => ep.shots?.length > 0))
@@ -334,6 +336,21 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
           default:
             console.log('未处理的阶段数据:', currentStage)
             return prev
+        }
+
+        // 标记当前阶段完成（用于首页进度/顶部状态等）
+        // 仅当该阶段数据确实已生成时才标记 completed，避免误标
+        if (isStageCompleted(updatedProject, currentStage)) {
+          const now = new Date().toISOString()
+          updatedProject.stageProgress = updatedProject.stageProgress.map(sp => {
+            if (sp.stage !== currentStage) return sp
+            return {
+              ...sp,
+              status: 'completed',
+              startedAt: sp.startedAt || now,
+              completedAt: now,
+            }
+          })
         }
 
         return updatedProject
