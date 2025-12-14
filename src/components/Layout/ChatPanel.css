@@ -503,9 +503,31 @@
   white-space: nowrap;
 }
 
+/* 批量生成进度 */
+.progress-detail {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.progress-bar {
+  height: 8px;
+  background: #fce7f3;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ec4899 0%, #be185d 100%);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
 /* 操作按钮 */
 .artist-actions {
   display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -533,6 +555,29 @@
   cursor: not-allowed;
 }
 
+.start-generation-btn.keyframe-btn {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+}
+
+.start-generation-btn.keyframe-btn:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+}
+
+.start-generation-btn.generating {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  animation: pulse-generating 1.5s ease-in-out infinite;
+}
+
+.start-generation-btn.generating:hover {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+@keyframes pulse-generating {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+
 .stop-generation-btn {
   flex: 1;
   padding: 12px 20px;
@@ -558,6 +603,79 @@
   border-radius: 6px;
   font-size: 12px;
   color: #92400e;
+}
+
+/* 美工阶段参数选择器 */
+.artist-params {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #f9a8d4;
+}
+
+.artist-params .param-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.artist-params .param-row label {
+  font-size: 13px;
+  color: #be185d;
+  min-width: 70px;
+  font-weight: 500;
+}
+
+.aspect-ratio-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.aspect-shape-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: #fce7f3;
+  border: 2px solid #f9a8d4;
+  border-radius: 6px;
+  font-size: 18px;
+  color: #be185d;
+  flex-shrink: 0;
+}
+
+.artist-params .param-select {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #f9a8d4;
+  border-radius: 6px;
+  font-size: 13px;
+  background: white;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.artist-params .param-select:hover:not(:disabled) {
+  border-color: #ec4899;
+}
+
+.artist-params .param-select:focus {
+  outline: none;
+  border-color: #ec4899;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.15);
+}
+
+.artist-params .param-select:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
 }
 
 /* 最后一次生成结果 */
@@ -653,5 +771,199 @@
 .image-model-selector .model-row select:disabled {
   background: #f3f4f6;
   color: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* ===== 导演阶段控制面板 ===== */
+.director-controls {
+  padding: 16px;
+  border-top: 1px solid #e5e5e5;
+  background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.director-params {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #a5b4fc;
+}
+
+.director-params .param-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.director-params .param-row label {
+  font-size: 13px;
+  color: #4338ca;
+  min-width: 70px;
+  font-weight: 500;
+}
+
+.director-params .param-select {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #c7d2fe;
+  border-radius: 6px;
+  font-size: 13px;
+  background: white;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.director-params .param-select:hover {
+  border-color: #818cf8;
+}
+
+.director-params .param-select:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.director-hint {
+  padding: 10px 12px;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #92400e;
+}
+
+.director-hint.warning {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+/* 导演阶段统计信息 */
+.director-stats {
+  padding: 12px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #a5b4fc;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.director-stats .stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #374151;
+}
+
+.director-stats .stat-row span:first-child {
+  color: #6366f1;
+  font-weight: 500;
+}
+
+.director-stats .progress-bar {
+  margin-top: 8px;
+  height: 6px;
+  background: #e0e7ff;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.director-stats .progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%);
+  transition: width 0.3s ease;
+}
+
+/* 导演阶段操作按钮 */
+.director-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.director-controls .start-generation-btn {
+  width: 100%;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.director-controls .start-generation-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.director-controls .start-generation-btn:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.director-controls .all-done-message {
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* 导演阶段生成进度 */
+.director-controls .generation-progress {
+  padding: 12px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #a5b4fc;
+}
+
+.director-controls .generation-progress .progress-header {
+  margin-bottom: 8px;
+}
+
+.director-controls .generation-progress .progress-phase {
+  font-size: 13px;
+  color: #6366f1;
+  font-weight: 500;
+}
+
+.director-controls .generation-progress .progress-detail {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.director-controls .generation-progress .progress-bar {
+  height: 6px;
+  background: #e0e7ff;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.director-controls .generation-progress .progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%);
+  transition: width 0.3s ease;
+}
+
+.director-params .param-select:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
   cursor: not-allowed;
 }

@@ -3,7 +3,15 @@
  * 串行生成角色参考图、场景参考图、关键帧图片
  */
 
-import { generateImageFromText, generateImageFromImage, getImageUrl } from './imageService';
+import { 
+  generateImageFromText, 
+  generateImageFromImage, 
+  getImageUrl,
+  batchGenerateImagesFromText,
+  batchGenerateImagesFromImage,
+  type BatchProgressCallback,
+  type GenerateImageResult,
+} from './imageService';
 import { getAsset, updateProject, getProject } from './storageService';
 import type { 
   Project, 
@@ -118,11 +126,13 @@ export function extractPromptsFromImageDesigner(imageDesigner: ImageDesignerData
     return { characterPrompts, scenePrompts, keyframePrompts };
   }
   
-  // 新格式
+  // 新格式（做一次防串类过滤）
   const newData = imageDesigner as ImageDesignerData;
+  const isChar = (p: any) => p?.type === 'character' || /^R-P\d{2}$/i.test(p?.code || '');
+  const isScene = (p: any) => p?.type === 'scene' || /^R-S\d{2}$/i.test(p?.code || '');
   return {
-    characterPrompts: newData.characterPrompts || [],
-    scenePrompts: newData.scenePrompts || [],
+    characterPrompts: (newData.characterPrompts || []).filter(isChar),
+    scenePrompts: (newData.scenePrompts || []).filter(isScene),
     keyframePrompts: newData.keyframePrompts || [],
   };
 }
@@ -290,19 +300,37 @@ export async function generateAllImages(
         currentItem: kfPrompt.code 
       });
 
-      // 查找参考图URL
-      const referenceUrls = kfPrompt.referenceIds
-        .map(refId => referenceUrlMap.get(refId))
-        .filter((url): url is string => !!url);
+      // 查找参考图URL和名称
+      const referenceInfos = kfPrompt.referenceIds
+        .map(refId => {
+          const url = referenceUrlMap.get(refId);
+          if (!url) return null;
+          // 根据 refId 查找对应的名称
+          const charPrompt = characterPrompts.find(p => p.code === refId);
+          const scenePrompt = scenePrompts.find(p => p.code === refId);
+          const name = charPrompt?.name || scenePrompt?.name || refId;
+          const type = refId.startsWith('R-P') ? 'character' : 'scene';
+          return { refId, url, name, type };
+        })
+        .filter((info): info is NonNullable<typeof info> => info !== null);
 
       let genResult;
       
-      if (referenceUrls.length > 0) {
+      if (referenceInfos.length > 0) {
+        // 构建增强版提示词：在原有提示词前加上参考图说明
+        const refDescriptions = referenceInfos.map((info, idx) => {
+          const typeLabel = info.type === 'character' ? '人物' : '场景';
+          return `参考图${idx + 1}是${info.name}（${typeLabel}）`;
+        }).join('，');
+        
+        const enhancedPrompt = `${refDescriptions}。画面：${kfPrompt.prompt}`;
+        
+        console.log('[generateAllImages] 图生图增强提示词:', enhancedPrompt);
+        
         // 有参考图时使用图生图
-        // 使用第一张参考图作为主参考图
         genResult = await generateImageFromImage(projectId, {
-          prompt: kfPrompt.prompt,
-          referenceImageUrl: referenceUrls[0],
+          prompt: enhancedPrompt,
+          referenceImageUrl: referenceInfos[0].url,
           width: 1024,
           height: 1024,
           model: 'kontext',  // 使用 kontext 模型进行图生图
@@ -390,6 +418,9 @@ export function getArtistStats(artistData?: ArtistData): {
   completedScenes: number;
   totalKeyframes: number;
   completedKeyframes: number;
+  failedCharacters: number;
+  failedScenes: number;
+  failedKeyframes: number;
   hasErrors: boolean;
 } {
   if (!artistData) {
@@ -400,12 +431,18 @@ export function getArtistStats(artistData?: ArtistData): {
       completedScenes: 0,
       totalKeyframes: 0,
       completedKeyframes: 0,
+      failedCharacters: 0,
+      failedScenes: 0,
+      failedKeyframes: 0,
       hasErrors: false,
     };
   }
 
   const countCompleted = (images: GeneratedImage[]) => 
     images.filter(img => img.status === 'completed').length;
+  
+  const countFailed = (images: GeneratedImage[]) => 
+    images.filter(img => img.status === 'failed').length;
   
   const hasErrors = (images: GeneratedImage[]) => 
     images.some(img => img.status === 'failed');
@@ -417,6 +454,9 @@ export function getArtistStats(artistData?: ArtistData): {
     completedScenes: countCompleted(artistData.sceneImages),
     totalKeyframes: artistData.keyframeImages.length,
     completedKeyframes: countCompleted(artistData.keyframeImages),
+    failedCharacters: countFailed(artistData.characterImages),
+    failedScenes: countFailed(artistData.sceneImages),
+    failedKeyframes: countFailed(artistData.keyframeImages),
     hasErrors: hasErrors(artistData.characterImages) || 
                hasErrors(artistData.sceneImages) || 
                hasErrors(artistData.keyframeImages),
@@ -440,6 +480,396 @@ export async function getGeneratedImageUrl(image: GeneratedImage): Promise<strin
  */
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ========================================
+// 批量并行生成方法
+// ========================================
+
+/** 批量生成进度回调 */
+export interface BatchGenerationProgress {
+  phase: 'characters' | 'scenes' | 'keyframes';
+  completed: number;
+  total: number;
+  currentName?: string;
+  success: boolean;
+  error?: string;
+}
+
+/** 批量生成结果 */
+export interface BatchGenerationResult {
+  success: boolean;
+  images: GeneratedImage[];
+  successCount: number;
+  failCount: number;
+  errors: string[];
+}
+
+/**
+ * 批量并行生成角色和场景参考图
+ */
+export async function generateAllReferences(
+  projectId: string,
+  options: {
+    concurrency?: number;
+    width?: number;
+    height?: number;
+    onProgress?: (progress: BatchGenerationProgress) => void;
+  } = {}
+): Promise<BatchGenerationResult> {
+  const { concurrency = 5, width, height, onProgress } = options;
+  
+  const result: BatchGenerationResult = {
+    success: false,
+    images: [],
+    successCount: 0,
+    failCount: 0,
+    errors: [],
+  };
+
+  // 获取项目数据
+  const project = await getProject(projectId);
+  if (!project) {
+    result.errors.push('项目不存在');
+    return result;
+  }
+
+  const imageDesigner = project.imageDesigner;
+  if (!imageDesigner) {
+    result.errors.push('请先完成图像设计阶段');
+    return result;
+  }
+
+  const { characterPrompts, scenePrompts } = extractPromptsFromImageDesigner(imageDesigner);
+  
+  // 获取已存在的美工数据
+  const artistData = project.artist || {
+    characterImages: [],
+    sceneImages: [],
+    keyframeImages: [],
+    isStale: false,
+  };
+
+  // ===== 生成角色参考图 =====
+  const characterResults = await batchGenerateImagesFromText(
+    projectId,
+    characterPrompts.map(p => ({ id: p.id, prompt: p.prompt, name: p.name })),
+    {
+      concurrency,
+      width,
+      height,
+      onProgress: (progress) => {
+        const prompt = characterPrompts.find(p => p.id === progress.currentId);
+        onProgress?.({
+          phase: 'characters',
+          completed: progress.completed,
+          total: progress.total,
+          currentName: prompt?.name,
+          success: progress.success,
+          error: progress.error,
+        });
+      },
+    }
+  );
+
+  // 转换角色图结果
+  const characterImages: GeneratedImage[] = [];
+  for (const prompt of characterPrompts) {
+    const genResult = characterResults.get(prompt.id);
+    const imageUrl = genResult?.asset?.localData || genResult?.cloudUrl || '';
+    
+    characterImages.push({
+      id: crypto.randomUUID(),
+      promptId: prompt.id,
+      assetId: genResult?.asset?.id || '',
+      status: genResult?.success ? 'completed' : 'failed',
+      error: genResult?.error,
+      imageUrl: genResult?.success ? imageUrl : undefined,
+      name: prompt.name,
+      isStale: false,
+    });
+
+    if (genResult?.success) {
+      result.successCount++;
+    } else {
+      result.failCount++;
+      if (genResult?.error) result.errors.push(`${prompt.name}: ${genResult.error}`);
+    }
+  }
+  result.images.push(...characterImages);
+  artistData.characterImages = characterImages;
+
+  // 保存进度
+  await updateProject({ ...project, artist: artistData });
+
+  // ===== 生成场景参考图 =====
+  const sceneResults = await batchGenerateImagesFromText(
+    projectId,
+    scenePrompts.map(p => ({ id: p.id, prompt: p.prompt, name: p.name })),
+    {
+      concurrency,
+      width,
+      height,
+      onProgress: (progress) => {
+        const prompt = scenePrompts.find(p => p.id === progress.currentId);
+        onProgress?.({
+          phase: 'scenes',
+          completed: progress.completed,
+          total: progress.total,
+          currentName: prompt?.name,
+          success: progress.success,
+          error: progress.error,
+        });
+      },
+    }
+  );
+
+  // 转换场景图结果
+  const sceneImages: GeneratedImage[] = [];
+  for (const prompt of scenePrompts) {
+    const genResult = sceneResults.get(prompt.id);
+    const imageUrl = genResult?.asset?.localData || genResult?.cloudUrl || '';
+    
+    sceneImages.push({
+      id: crypto.randomUUID(),
+      promptId: prompt.id,
+      assetId: genResult?.asset?.id || '',
+      status: genResult?.success ? 'completed' : 'failed',
+      error: genResult?.error,
+      imageUrl: genResult?.success ? imageUrl : undefined,
+      name: prompt.name,
+      isStale: false,
+    });
+
+    if (genResult?.success) {
+      result.successCount++;
+    } else {
+      result.failCount++;
+      if (genResult?.error) result.errors.push(`${prompt.name}: ${genResult.error}`);
+    }
+  }
+  result.images.push(...sceneImages);
+  artistData.sceneImages = sceneImages;
+
+  // 保存最终结果
+  await updateProject({ ...project, artist: artistData });
+
+  result.success = result.failCount === 0;
+  return result;
+}
+
+/**
+ * 批量并行生成关键帧图片
+ */
+export async function generateAllKeyframes(
+  projectId: string,
+  options: {
+    concurrency?: number;
+    width?: number;
+    height?: number;
+    onProgress?: (progress: BatchGenerationProgress) => void;
+  } = {}
+): Promise<BatchGenerationResult> {
+  const { concurrency = 5, width, height, onProgress } = options;
+  
+  const result: BatchGenerationResult = {
+    success: false,
+    images: [],
+    successCount: 0,
+    failCount: 0,
+    errors: [],
+  };
+
+  // 获取项目数据
+  const project = await getProject(projectId);
+  if (!project) {
+    result.errors.push('项目不存在');
+    return result;
+  }
+
+  const imageDesigner = project.imageDesigner;
+  if (!imageDesigner) {
+    result.errors.push('请先完成图像设计阶段');
+    return result;
+  }
+
+  const artistData = project.artist;
+  if (!artistData?.characterImages?.length || !artistData?.sceneImages?.length) {
+    result.errors.push('请先生成角色和场景参考图');
+    return result;
+  }
+
+  const { characterPrompts, scenePrompts, keyframePrompts } = extractPromptsFromImageDesigner(imageDesigner);
+
+  // 构建参考图URL映射 (code -> cloudUrl)
+  const referenceUrlMap = new Map<string, string>();
+  
+  for (const img of artistData.characterImages) {
+    if (img.status === 'completed' && img.assetId) {
+      const asset = await getAsset(img.assetId);
+      if (asset?.cloudUrl) {
+        const prompt = characterPrompts.find(p => p.id === img.promptId);
+        if (prompt) referenceUrlMap.set(prompt.code, asset.cloudUrl);
+      }
+    }
+  }
+  
+  for (const img of artistData.sceneImages) {
+    if (img.status === 'completed' && img.assetId) {
+      const asset = await getAsset(img.assetId);
+      if (asset?.cloudUrl) {
+        const prompt = scenePrompts.find(p => p.id === img.promptId);
+        if (prompt) referenceUrlMap.set(prompt.code, asset.cloudUrl);
+      }
+    }
+  }
+
+  // 准备关键帧生成任务
+  const keyframeTasks: Array<{ id: string; prompt: string; referenceUrl: string; name: string }> = [];
+  const textOnlyTasks: Array<{ id: string; prompt: string; name: string }> = [];
+
+  for (const kfPrompt of keyframePrompts) {
+    // 查找参考图URL
+    const referenceInfos = kfPrompt.referenceIds
+      .map(refId => {
+        const url = referenceUrlMap.get(refId);
+        if (!url) return null;
+        const charPrompt = characterPrompts.find(p => p.code === refId);
+        const scenePrompt = scenePrompts.find(p => p.code === refId);
+        const name = charPrompt?.name || scenePrompt?.name || refId;
+        const type = refId.startsWith('R-P') ? 'character' : 'scene';
+        return { refId, url, name, type };
+      })
+      .filter((info): info is NonNullable<typeof info> => info !== null);
+
+    if (referenceInfos.length > 0) {
+      // 构建增强版提示词
+      const refDescriptions = referenceInfos.map((info, idx) => {
+        const typeLabel = info.type === 'character' ? '人物' : '场景';
+        return `参考图${idx + 1}是${info.name}（${typeLabel}）`;
+      }).join('，');
+      
+      const enhancedPrompt = `${refDescriptions}。画面：${kfPrompt.prompt}`;
+      
+      keyframeTasks.push({
+        id: kfPrompt.id,
+        prompt: enhancedPrompt,
+        referenceUrl: referenceInfos[0].url,
+        name: kfPrompt.code,
+      });
+    } else {
+      // 没有参考图，使用文生图
+      textOnlyTasks.push({
+        id: kfPrompt.id,
+        prompt: kfPrompt.prompt,
+        name: kfPrompt.code,
+      });
+    }
+  }
+
+  const keyframeImages: GeneratedImage[] = [];
+
+  // 先执行图生图任务
+  if (keyframeTasks.length > 0) {
+    const img2imgResults = await batchGenerateImagesFromImage(
+      projectId,
+      keyframeTasks,
+      {
+        concurrency,
+        width,
+        height,
+        onProgress: (progress) => {
+          const task = keyframeTasks.find(t => t.id === progress.currentId);
+          onProgress?.({
+            phase: 'keyframes',
+            completed: progress.completed,
+            total: keyframeTasks.length + textOnlyTasks.length,
+            currentName: task?.name,
+            success: progress.success,
+            error: progress.error,
+          });
+        },
+      }
+    );
+
+    for (const task of keyframeTasks) {
+      const genResult = img2imgResults.get(task.id);
+      const imageUrl = genResult?.asset?.localData || genResult?.cloudUrl || '';
+      
+      keyframeImages.push({
+        id: crypto.randomUUID(),
+        promptId: task.id,
+        assetId: genResult?.asset?.id || '',
+        status: genResult?.success ? 'completed' : 'failed',
+        error: genResult?.error,
+        imageUrl: genResult?.success ? imageUrl : undefined,
+        name: task.name,
+        isStale: false,
+      });
+
+      if (genResult?.success) {
+        result.successCount++;
+      } else {
+        result.failCount++;
+        if (genResult?.error) result.errors.push(`${task.name}: ${genResult.error}`);
+      }
+    }
+  }
+
+  // 再执行文生图任务
+  if (textOnlyTasks.length > 0) {
+    const txt2imgResults = await batchGenerateImagesFromText(
+      projectId,
+      textOnlyTasks,
+      {
+        concurrency,
+        width,
+        height,
+        onProgress: (progress) => {
+          const task = textOnlyTasks.find(t => t.id === progress.currentId);
+          onProgress?.({
+            phase: 'keyframes',
+            completed: keyframeTasks.length + progress.completed,
+            total: keyframeTasks.length + textOnlyTasks.length,
+            currentName: task?.name,
+            success: progress.success,
+            error: progress.error,
+          });
+        },
+      }
+    );
+
+    for (const task of textOnlyTasks) {
+      const genResult = txt2imgResults.get(task.id);
+      const imageUrl = genResult?.asset?.localData || genResult?.cloudUrl || '';
+      
+      keyframeImages.push({
+        id: crypto.randomUUID(),
+        promptId: task.id,
+        assetId: genResult?.asset?.id || '',
+        status: genResult?.success ? 'completed' : 'failed',
+        error: genResult?.error,
+        imageUrl: genResult?.success ? imageUrl : undefined,
+        name: task.name,
+        isStale: false,
+      });
+
+      if (genResult?.success) {
+        result.successCount++;
+      } else {
+        result.failCount++;
+        if (genResult?.error) result.errors.push(`${task.name}: ${genResult.error}`);
+      }
+    }
+  }
+
+  // 保存结果
+  result.images = keyframeImages;
+  artistData.keyframeImages = keyframeImages;
+  await updateProject({ ...project, artist: artistData });
+
+  result.success = result.failCount === 0;
+  return result;
 }
 
 /**
@@ -589,6 +1019,11 @@ export async function generateNextImage(
     const nextIndex = completedCharacters;
     const prompt = characterPrompts[nextIndex];
     
+    // 检查是否存在相同 promptId 的失败图片，如果有则替换
+    const existingFailedIndex = artistData.characterImages.findIndex(
+      img => img.promptId === prompt.id && img.status === 'failed'
+    );
+    
     const genResult = await generateImageFromText(projectId, {
       prompt: prompt.prompt,
       width: 1024,
@@ -599,7 +1034,7 @@ export async function generateNextImage(
     const imageUrl = genResult.asset?.localData || genResult.cloudUrl || '';
     
     const image: GeneratedImage = {
-      id: crypto.randomUUID(),
+      id: existingFailedIndex >= 0 ? artistData.characterImages[existingFailedIndex].id : crypto.randomUUID(),
       promptId: prompt.id,
       assetId: genResult.asset?.id || '',
       status: genResult.success ? 'completed' : 'failed',
@@ -609,8 +1044,12 @@ export async function generateNextImage(
       isStale: false,
     };
 
-    // 保存进度
-    artistData.characterImages.push(image);
+    // 保存进度：如果存在失败图片则替换，否则新建
+    if (existingFailedIndex >= 0) {
+      artistData.characterImages[existingFailedIndex] = image;
+    } else {
+      artistData.characterImages.push(image);
+    }
     await updateProject({ ...project, artist: artistData });
 
     const isLastInPhase = nextIndex + 1 >= characterPrompts.length;
@@ -631,6 +1070,11 @@ export async function generateNextImage(
     const nextIndex = completedScenes;
     const prompt = scenePrompts[nextIndex];
     
+    // 检查是否存在相同 promptId 的失败图片，如果有则替换
+    const existingFailedIndex = artistData.sceneImages.findIndex(
+      img => img.promptId === prompt.id && img.status === 'failed'
+    );
+    
     const genResult = await generateImageFromText(projectId, {
       prompt: prompt.prompt,
       width: 1024,
@@ -641,7 +1085,7 @@ export async function generateNextImage(
     const imageUrl = genResult.asset?.localData || genResult.cloudUrl || '';
     
     const image: GeneratedImage = {
-      id: crypto.randomUUID(),
+      id: existingFailedIndex >= 0 ? artistData.sceneImages[existingFailedIndex].id : crypto.randomUUID(),
       promptId: prompt.id,
       assetId: genResult.asset?.id || '',
       status: genResult.success ? 'completed' : 'failed',
@@ -651,7 +1095,12 @@ export async function generateNextImage(
       isStale: false,
     };
 
-    artistData.sceneImages.push(image);
+    // 保存进度：如果存在失败图片则替换，否则新建
+    if (existingFailedIndex >= 0) {
+      artistData.sceneImages[existingFailedIndex] = image;
+    } else {
+      artistData.sceneImages.push(image);
+    }
     await updateProject({ ...project, artist: artistData });
 
     const isLastInPhase = nextIndex + 1 >= scenePrompts.length;
@@ -672,16 +1121,40 @@ export async function generateNextImage(
     const nextIndex = completedKeyframes;
     const kfPrompt = keyframePrompts[nextIndex];
     
-    // 查找参考图URL
-    const referenceUrls = kfPrompt.referenceIds
-      .map(refId => referenceUrlMap.get(refId))
-      .filter((url): url is string => !!url);
+    // 检查是否存在相同 promptId 的失败图片，如果有则替换
+    const existingFailedIndex = artistData.keyframeImages.findIndex(
+      img => img.promptId === kfPrompt.id && img.status === 'failed'
+    );
+    
+    // 查找参考图URL和名称
+    const referenceInfos = kfPrompt.referenceIds
+      .map(refId => {
+        const url = referenceUrlMap.get(refId);
+        if (!url) return null;
+        // 根据 refId 查找对应的名称
+        const charPrompt = characterPrompts.find(p => p.code === refId);
+        const scenePrompt = scenePrompts.find(p => p.code === refId);
+        const name = charPrompt?.name || scenePrompt?.name || refId;
+        const type = refId.startsWith('R-P') ? 'character' : 'scene';
+        return { refId, url, name, type };
+      })
+      .filter((info): info is NonNullable<typeof info> => info !== null);
 
     let genResult;
-    if (referenceUrls.length > 0) {
+    if (referenceInfos.length > 0) {
+      // 构建增强版提示词：在原有提示词前加上参考图说明
+      const refDescriptions = referenceInfos.map((info, idx) => {
+        const typeLabel = info.type === 'character' ? '人物' : '场景';
+        return `参考图${idx + 1}是${info.name}（${typeLabel}）`;
+      }).join('，');
+      
+      const enhancedPrompt = `${refDescriptions}。画面：${kfPrompt.prompt}`;
+      
+      console.log('[generateNextImage] 图生图增强提示词:', enhancedPrompt);
+      
       genResult = await generateImageFromImage(projectId, {
-        prompt: kfPrompt.prompt,
-        referenceImageUrl: referenceUrls[0],
+        prompt: enhancedPrompt,
+        referenceImageUrl: referenceInfos[0].url,
         width: 1024,
         height: 1024,
         model: img2imgModel,
@@ -698,7 +1171,7 @@ export async function generateNextImage(
     const imageUrl = genResult.asset?.localData || genResult.cloudUrl || '';
     
     const image: GeneratedImage = {
-      id: crypto.randomUUID(),
+      id: existingFailedIndex >= 0 ? artistData.keyframeImages[existingFailedIndex].id : crypto.randomUUID(),
       promptId: kfPrompt.id,
       assetId: genResult.asset?.id || '',
       status: genResult.success ? 'completed' : 'failed',
@@ -708,7 +1181,12 @@ export async function generateNextImage(
       isStale: false,
     };
 
-    artistData.keyframeImages.push(image);
+    // 保存进度：如果存在失败图片则替换，否则新建
+    if (existingFailedIndex >= 0) {
+      artistData.keyframeImages[existingFailedIndex] = image;
+    } else {
+      artistData.keyframeImages.push(image);
+    }
     await updateProject({ ...project, artist: artistData });
 
     const isLastInPhase = nextIndex + 1 >= keyframePrompts.length;

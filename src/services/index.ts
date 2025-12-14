@@ -72,16 +72,19 @@ export {
   renderScreenwriterData,
   renderStageData,
   renderArtistData,
+  renderDirectorData,
 } from './canvasService';
 
 // 图片生成服务
 export {
   generateImageFromText,
   generateImageFromImage,
-  batchGenerateImages,
+  batchGenerateImagesFromText,
+  batchGenerateImagesFromImage,
   getImageUrl,
   type GenerateImageOptions,
   type GenerateImageResult,
+  type BatchProgressCallback,
 } from './imageService';
 
 // 视频生成服务
@@ -98,6 +101,8 @@ export {
 export {
   generateAllImages,
   generateNextImage,
+  generateAllReferences,
+  generateAllKeyframes,
   extractPromptsFromImageDesigner,
   getArtistStats,
   getGeneratedImageUrl,
@@ -108,4 +113,22 @@ export {
   type GenerateAllImagesResult,
   type GenerateNextResult,
   type GenerateNextOptions,
+  type BatchGenerationProgress,
+  type BatchGenerationResult,
 } from './artistService';
+
+// 导演阶段服务
+export {
+  getShotVideoParams,
+  buildVideoPrompt,
+  generateShotVideo,
+  generateAllVideos,
+  getDirectorStats,
+  regenerateVideo,
+  getVideoUrlById,
+  type VideoGenerationParams,
+  type GenerateSingleVideoResult,
+  type VideoGenerationProgress,
+  type GenerateAllVideosOptions,
+  type GenerateAllVideosResult,
+} from './directorService';

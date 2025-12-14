@@ -1,6 +1,6 @@
 import { useCallback, useState, useMemo } from 'react'
 import { Tldraw, Editor, TLShapeId, createShapeId, AssetRecordType } from 'tldraw'
-import { generateImage, generateImageToImage, generateImageToVideo, uploadImageToHost, fileToDataUrl, convertToDataUrl, IMG2IMG_MODELS, Img2ImgModel, IMAGE_QUALITY_OPTIONS, ImageQuality } from './services/pollinations'
+import { generateImage, generateImageToImage, generateImageToVideo, generateImageToVideoRuncomfy, uploadImageToHost, fileToDataUrl, convertToDataUrl, IMG2IMG_MODELS, Img2ImgModel, IMAGE_QUALITY_OPTIONS, ImageQuality } from './services/pollinations'
 import { AIVideoShapeUtil } from './shapes/VideoShape'
 import './App.css'
 
@@ -23,7 +23,18 @@ function App() {
   // 视频参数
   const [videoPrompt, setVideoPrompt] = useState('')
   const [videoDuration, setVideoDuration] = useState(5)
-  const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16'>('16:9')
+  const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9'>('16:9')
+  const [videoResolution, setVideoResolution] = useState<'480p' | '720p' | '1080p'>('480p')
+
+  // 宽高比选项配置（带形状图标）
+  const aspectRatioOptions = [
+    { value: '16:9', label: '⬜ 16:9 横屏', shape: '▭' },
+    { value: '4:3', label: '⬜ 4:3 标准', shape: '▭' },
+    { value: '1:1', label: '⬛ 1:1 方形', shape: '□' },
+    { value: '3:4', label: '⬜ 3:4 竖屏', shape: '▯' },
+    { value: '9:16', label: '⬜ 9:16 手机', shape: '▯' },
+    { value: '21:9', label: '⬜ 21:9 宽屏', shape: '━' },
+  ] as const
 
   // 自定义形状工具列表
   const customShapeUtils = useMemo(() => [AIVideoShapeUtil], [])
@@ -484,31 +495,39 @@ function App() {
         throw new Error('图片上传失败，请检查网络连接或稍后重试');
       }
 
-      // 步骤3: 调用图生视频 API
+      // 步骤3: 调用图生视频 API (RunComfy Seedance 1.0)
       setMessage(`正在生成 ${videoDuration} 秒视频，请耐心等待（可能需要几分钟）...`)
-      const videoBlob = await generateImageToVideo({
+      
+      // 使用新的 RunComfy API
+      const videoResult = await generateImageToVideoRuncomfy({
         prompt: videoPrompt.trim(),
         imageUrl: imageUrlToUse,
         duration: videoDuration,
-        aspectRatio: videoAspectRatio,
+        resolution: videoResolution,
+        ratio: videoAspectRatio,
       })
 
-      console.log('视频生成成功，Blob 大小:', videoBlob.size)
+      console.log('视频生成成功, URL:', videoResult.videoUrl)
 
-      // 将视频 Blob 转换为 data URL 以便持久化存储
-      setMessage('正在处理视频...')
-      const videoDataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result as string)
-        reader.onerror = reject
-        reader.readAsDataURL(videoBlob)
-      })
+      // RunComfy 返回的是视频 URL，直接使用
+      const videoDataUrl = videoResult.videoUrl
 
-      console.log('视频已转换为 data URL，长度:', videoDataUrl.length)
+      console.log('视频 URL:', videoDataUrl)
 
-      // 计算视频形状的尺寸
-      const videoWidth = videoAspectRatio === '16:9' ? 640 : 360
-      const videoHeight = videoAspectRatio === '16:9' ? 360 : 640
+      // 根据宽高比计算视频形状的尺寸
+      const getVideoDimensions = (ratio: string) => {
+        const baseSize = 480
+        switch (ratio) {
+          case '16:9': return { width: 640, height: 360 }
+          case '4:3': return { width: 640, height: 480 }
+          case '1:1': return { width: 480, height: 480 }
+          case '3:4': return { width: 480, height: 640 }
+          case '9:16': return { width: 360, height: 640 }
+          case '21:9': return { width: 756, height: 324 }
+          default: return { width: 640, height: 360 }
+        }
+      }
+      const { width: videoWidth, height: videoHeight } = getVideoDimensions(videoAspectRatio)
 
       // 在画布上创建视频形状
       const shapeId: TLShapeId = createShapeId()
@@ -546,7 +565,7 @@ function App() {
     } finally {
       setIsGenerating(false)
     }
-  }, [editor, selectedImages, videoPrompt, videoDuration, videoAspectRatio])
+  }, [editor, selectedImages, videoPrompt, videoDuration, videoAspectRatio, videoResolution])
 
   return (
     <div className="app">
@@ -766,25 +785,42 @@ function App() {
         </div>
 
         <div className="control-group" style={{ borderTop: '1px solid #e0e0e0', paddingTop: '10px', marginTop: '10px' }}>
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+          <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+            🎬 图生视频 (RunComfy Seedance 1.0)
+          </div>
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
             <select
               value={videoDuration}
               onChange={(e) => setVideoDuration(Number(e.target.value))}
               disabled={isGenerating || selectedImages.length === 0}
-              style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}
+              style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px' }}
+              title="视频时长"
             >
-              {[2, 3, 4, 5, 6, 7, 8, 9, 10].map(d => (
+              {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(d => (
                 <option key={d} value={d}>{d}秒</option>
               ))}
             </select>
             <select
-              value={videoAspectRatio}
-              onChange={(e) => setVideoAspectRatio(e.target.value as '16:9' | '9:16')}
+              value={videoResolution}
+              onChange={(e) => setVideoResolution(e.target.value as '480p' | '720p' | '1080p')}
               disabled={isGenerating || selectedImages.length === 0}
-              style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}
+              style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px' }}
+              title="分辨率"
             >
-              <option value="16:9">横屏 16:9</option>
-              <option value="9:16">竖屏 9:16</option>
+              <option value="480p">480p 标清</option>
+              <option value="720p">720p 高清</option>
+              <option value="1080p">1080p 超清</option>
+            </select>
+            <select
+              value={videoAspectRatio}
+              onChange={(e) => setVideoAspectRatio(e.target.value as '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9')}
+              disabled={isGenerating || selectedImages.length === 0}
+              style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px', minWidth: '120px' }}
+              title="宽高比"
+            >
+              {aspectRatioOptions.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.shape} {opt.value}</option>
+              ))}
             </select>
           </div>
           {selectedImages.length > 1 && (

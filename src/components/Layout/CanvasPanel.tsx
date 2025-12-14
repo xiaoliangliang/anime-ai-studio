@@ -6,7 +6,8 @@ import { useCallback, useState, useEffect, useRef } from 'react'
 import { Tldraw, Editor, useEditor } from 'tldraw'
 import 'tldraw/tldraw.css'
 import type { ProjectStage } from '@/types'
-import { STAGE_AREAS, navigateToStage, addStageBackgrounds, renderStageData } from '@/services'
+import { STAGE_AREAS, navigateToStage, addStageBackgrounds, renderStageData, regenerateVideo } from '@/services'
+import { extractPromptsFromImageDesigner } from '@/services/artistService'
 import { useProject } from '@/contexts/ProjectContext'
 import './CanvasPanel.css'
 
@@ -47,8 +48,9 @@ interface CanvasPanelProps {
 export default function CanvasPanel({ projectId, stage }: CanvasPanelProps) {
   const [editor, setEditor] = useState<Editor | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
-  const { currentProject } = useProject()
+  const { currentProject, loadProject } = useProject()
   const lastDataHashRef = useRef<string>('')
+  const lastStageRef = useRef<ProjectStage | null>(null)
   
   // 编辑器挂载回调
   const handleMount = useCallback((editor: Editor) => {
@@ -71,6 +73,57 @@ export default function CanvasPanel({ projectId, stage }: CanvasPanelProps) {
     }
   }, [editor, stage, isInitialized])
 
+  // 点击按钮形状立即执行；双击视频在新标签播放
+  useEffect(() => {
+    if (!editor || !isInitialized) return
+
+    const handleClick = () => {
+      setTimeout(async () => {
+        const selected = editor.getSelectedShapes()
+        if (selected.length === 0) return
+        const shape: any = selected[0]
+        const meta = shape.meta || {}
+        if (meta.action === 'regenVideo' && meta.shotId) {
+          if (!currentProject) return
+          const res = await regenerateVideo(currentProject.meta.id, meta.shotId)
+          if (!res.success) {
+            alert(res.error || '重新生成失败')
+            return
+          }
+          await loadProject(currentProject.meta.id)
+          return
+        }
+        if (meta.action === 'downloadVideo' && meta.videoUrl) {
+          const a = document.createElement('a')
+          a.href = meta.videoUrl
+          a.download = `${meta.shotNumber || 'video'}.mp4`
+          document.body.appendChild(a)
+          a.click()
+          a.remove()
+          return
+        }
+      }, 0)
+    }
+
+    const handleDoubleClick = () => {
+      const selected = editor.getSelectedShapes()
+      if (selected.length === 0) return
+      const shape: any = selected[0]
+      const videoUrl = shape.meta?.videoUrl
+      if (shape.type === 'video' && videoUrl) window.open(videoUrl, '_blank')
+    }
+
+    const el = document.querySelector('.canvas-container') as HTMLElement | null
+    if (el) {
+      el.addEventListener('click', handleClick)
+      el.addEventListener('dblclick', handleDoubleClick)
+      return () => {
+        el.removeEventListener('click', handleClick)
+        el.removeEventListener('dblclick', handleDoubleClick)
+      }
+    }
+  }, [editor, isInitialized, currentProject, loadProject])
+
   // 监听项目数据变化，渲染到画布
   useEffect(() => {
     if (!editor || !isInitialized || !currentProject) return
@@ -88,20 +141,56 @@ export default function CanvasPanel({ projectId, stage }: CanvasPanelProps) {
       case 'imageDesigner':
         stageData = currentProject.imageDesigner
         break
-      case 'artist':
-        stageData = currentProject.artist
-        break
-      case 'director':
-        stageData = currentProject.director
-        break
+      case 'artist': {
+        // 美工阶段需要同时传递图片数据和提示词数据
+        const artistData = currentProject.artist || { characterImages: [], sceneImages: [], keyframeImages: [], isStale: false };
+        
+        // 使用 extractPromptsFromImageDesigner 提取提示词（支持新旧格式）
+        const extractedPrompts = currentProject.imageDesigner 
+          ? extractPromptsFromImageDesigner(currentProject.imageDesigner as Parameters<typeof extractPromptsFromImageDesigner>[0])
+          : null;
+        
+        const promptsData = extractedPrompts ? {
+          characterPrompts: extractedPrompts.characterPrompts || [],
+          scenePrompts: extractedPrompts.scenePrompts || [],
+          keyframePrompts: extractedPrompts.keyframePrompts || [],
+        } : undefined;
+        
+        stageData = {
+          ...artistData,
+          prompts: promptsData,
+        };
+        break;
+      }
+      case 'director': {
+        // 导演阶段需要同时传递分镜数据、美工数据和导演数据
+        const directorStageData = {
+          storyboard: currentProject.storyboard,
+          artist: currentProject.artist,
+          director: currentProject.director,
+        };
+        console.log('[CanvasPanel] 导演阶段原始 storyboard 数据:', JSON.stringify(currentProject.storyboard, null, 2));
+        console.log('[CanvasPanel] 导演阶段数据:', {
+          hasStoryboard: !!directorStageData.storyboard,
+          storyboardKeys: directorStageData.storyboard ? Object.keys(directorStageData.storyboard) : [],
+          storyboardEpisodes: directorStageData.storyboard?.episodes?.length,
+          hasArtist: !!directorStageData.artist,
+        });
+        stageData = directorStageData;
+        break;
+      }
     }
     
     if (!stageData) return
     
     // 计算数据哈希，避免重复渲染
-    const dataHash = JSON.stringify(stageData)
-    if (dataHash === lastDataHashRef.current) return
+    // 注意：阶段变化时强制重新渲染
+    const dataHash = `${stage}:${JSON.stringify(stageData)}`
+    const stageChanged = lastStageRef.current !== stage
+    if (!stageChanged && dataHash === lastDataHashRef.current) return
+    
     lastDataHashRef.current = dataHash
+    lastStageRef.current = stage
     
     console.log(`渲染 ${stage} 阶段数据到画布...`, stageData)
     

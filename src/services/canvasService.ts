@@ -361,12 +361,13 @@ export function clearStageData(editor: Editor, stage: ProjectStage): void {
   const allShapes = editor.getCurrentPageShapes();
   
   // 找到阶段区域内的形状，但排除背景 geo 和标签 text
+  // 扩大清除范围，包括可能超出右边界的形状
   const dataShapes = allShapes.filter(shape => {
     const bounds = editor.getShapePageBounds(shape.id);
     if (!bounds) return false;
     
-    // 检查是否在阶段区域内
-    if (bounds.x < area.x || bounds.x >= area.x + area.width) return false;
+    // 检查是否在阶段区域内或稍微超出右边界（扩大 2000px 的范围）
+    if (bounds.x < area.x || bounds.x >= area.x + area.width + 2000) return false;
     
     // 排除背景框（geo 类型，接近区域大小）和标签（text 类型，位置接近顶部）
     if (shape.type === 'geo' && bounds.w > 1500) return false;
@@ -800,16 +801,21 @@ export function renderStoryboardData(
   const rowCellLines: string[][][] = [];
   
   for (const shot of data.shots) {
+    // 兼容两种字段名：shotId/shotNumber, description/content, character/assignee
+    const shotNum = shot.shotId || (shot as unknown as { shotNumber?: string }).shotNumber || '';
+    const desc = shot.description || (shot as unknown as { content?: string }).content || '';
+    const char = shot.character || (shot as unknown as { assignee?: string }).assignee || '';
+    
     const cellTexts = [
-      shot.shotId || '',
+      shotNum,
       shot.location || '',
-      shot.description || '',
+      desc,
       shot.shotSize || '',
       shot.cameraAngle || '',
       shot.cameraMovement || '',
       `${shot.duration || 0}s`,
       shot.dialogue || '无',
-      shot.character || '',
+      char,
       shot.notes || '',
     ];
     
@@ -1058,19 +1064,21 @@ export function renderStoryboardData(
 
 /**
  * 渲染图像设计阶段数据到画布
- * 期望数据结构：
- * {
- *   referenceImages: Array<{ refId: string; type: 'character'|'scene'; name: string; prompt: string; description?: string }>,
- *   keyframes: Array<{ shotId: string; frameNumber: number; prompt: string; referenceIds?: string[]; characters?: string[]; scene?: string; description?: string }>,
- *   summary?: { totalCharacters?: number; totalScenes?: number; totalKeyframes?: number }
- * }
+ * 支持两种数据格式：
+ * 1. AI原始格式: { referenceImages, keyframes, summary }
+ * 2. 项目保存格式: { characterPrompts, scenePrompts, keyframePrompts }
  */
 export function renderImageDesignerData(
   editor: Editor,
   data: {
+    // AI原始格式
     referenceImages?: Array<{ refId: string; type: 'character'|'scene'; name: string; prompt: string; description?: string }>
     keyframes?: Array<{ shotId: string; frameNumber: number; prompt: string; referenceIds?: string[]; characters?: string[]; scene?: string; description?: string }>
     summary?: { totalCharacters?: number; totalScenes?: number; totalKeyframes?: number }
+    // 项目保存格式
+    characterPrompts?: Array<{ code: string; name: string; prompt: string }>
+    scenePrompts?: Array<{ code: string; name: string; prompt: string }>
+    keyframePrompts?: Array<{ code: string; shotId: string; frameIndex: number; prompt: string; referenceIds?: string[]; characters?: string[]; scene?: string; description?: string }>
   }
 ): void {
   const area = STAGE_AREAS.imageDesigner;
@@ -1089,9 +1097,42 @@ export function renderImageDesignerData(
   });
   currentY += 50;
 
-  // 分离人物和场景参考图
-  const characterRefs = data?.referenceImages?.filter(r => r.type === 'character') || [];
-  const sceneRefs = data?.referenceImages?.filter(r => r.type === 'scene') || [];
+  // 兼容两种数据格式：优先使用项目保存格式，其次使用AI原始格式
+  let characterRefs: Array<{ refId: string; name: string; prompt: string }> = [];
+  let sceneRefs: Array<{ refId: string; name: string; prompt: string }> = [];
+  let keyframes: Array<{ shotId: string; frameNumber: number; prompt: string; referenceIds?: string[]; characters?: string[]; scene?: string; description?: string }> = [];
+
+  const looksLikeChar = (p: any) => p?.type === 'character' || /^R-P\d{2}$/i.test(p?.code || p?.refId || '');
+  const looksLikeScene = (p: any) => p?.type === 'scene' || /^R-S\d{2}$/i.test(p?.code || p?.refId || '');
+
+  if (data?.characterPrompts && data.characterPrompts.length > 0) {
+    // 项目保存格式（严格过滤）
+    characterRefs = data.characterPrompts.filter(looksLikeChar).map(p => ({ refId: p.code, name: p.name, prompt: p.prompt }));
+  } else if (data?.referenceImages) {
+    // AI原始格式
+    characterRefs = data.referenceImages.filter(r => r.type === 'character').map(r => ({ refId: r.refId, name: r.name, prompt: r.prompt }));
+  }
+
+  if (data?.scenePrompts && data.scenePrompts.length > 0) {
+    sceneRefs = data.scenePrompts.filter(looksLikeScene).map(p => ({ refId: p.code, name: p.name, prompt: p.prompt }));
+  } else if (data?.referenceImages) {
+    sceneRefs = data.referenceImages.filter(r => r.type === 'scene').map(r => ({ refId: r.refId, name: r.name, prompt: r.prompt }));
+  }
+
+  if (data?.keyframePrompts && data.keyframePrompts.length > 0) {
+    // 项目保存格式：保留所有字段
+    keyframes = data.keyframePrompts.map(p => ({
+      shotId: p.shotId,
+      frameNumber: p.frameIndex,
+      prompt: p.prompt,
+      referenceIds: p.referenceIds,
+      characters: p.characters,
+      scene: p.scene,
+      description: p.description,
+    }));
+  } else if (data?.keyframes) {
+    keyframes = data.keyframes;
+  }
 
   const cardH = 135;   // 卡片高度（90 * 1.5 = 135）
 
@@ -1210,7 +1251,7 @@ export function renderImageDesignerData(
   }
 
   // ========== 关键帧提示词表格 ==========
-  if (data?.keyframes && data.keyframes.length > 0) {
+  if (keyframes.length > 0) {
     // 区块标题
     editor.createShape({
       type: 'geo', x: area.x + 20, y: currentY,
@@ -1256,7 +1297,7 @@ export function renderImageDesignerData(
     const pad = 12;
     const baseRowH = 160;  // 基础行高放大4倍（40 -> 160）
 
-    data.keyframes.forEach((kf, idx) => {
+    keyframes.forEach((kf, idx) => {
       // 提示词按 35 字换行
       const promptText = wrapText(kf.prompt || '', 35);
       const promptLines = promptText.split('\n').length;
@@ -1297,10 +1338,15 @@ export function renderImageDesignerData(
   }
 
   // ========== 统计摘要 ==========
-  if (data?.summary) {
+  // 使用实际数据统计，或使用原始 summary
+  const totalCharacters = characterRefs.length || data?.summary?.totalCharacters || 0;
+  const totalScenes = sceneRefs.length || data?.summary?.totalScenes || 0;
+  const totalKeyframes = keyframes.length || data?.summary?.totalKeyframes || 0;
+  
+  if (totalCharacters > 0 || totalScenes > 0 || totalKeyframes > 0) {
     currentY += 20;
     editor.createShape({ type: 'geo', x: area.x + 30, y: currentY, props: { geo: 'rectangle', w: 500, h: 44, color: 'orange', fill: 'semi', dash: 'draw', size: 's' } });
-    editor.createShape({ type: 'text', x: area.x + 45, y: currentY + 12, props: { text: `📊 统计：人物 ${data.summary.totalCharacters ?? 0} 个  |  场景 ${data.summary.totalScenes ?? 0} 个  |  关键帧 ${data.summary.totalKeyframes ?? 0} 张`, size: 's', font: 'sans', color: 'black' } });
+    editor.createShape({ type: 'text', x: area.x + 45, y: currentY + 12, props: { text: `📊 统计：人物 ${totalCharacters} 个  |  场景 ${totalScenes} 个  |  关键帧 ${totalKeyframes} 张`, size: 's', font: 'sans', color: 'black' } });
     currentY += 60;
   }
 
@@ -1342,9 +1388,53 @@ export function renderStageData(
       renderArtistData(editor, data as Parameters<typeof renderArtistData>[1]);
       break;
     case 'director':
-      console.log(`阶段 ${stage} 的数据渲染暂未实现`);
+      renderDirectorData(editor, data as Parameters<typeof renderDirectorData>[1]);
       break;
   }
+}
+
+/**
+ * 获取图片的实际尺寸
+ */
+function getImageDimensions(url: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    };
+    img.onerror = () => {
+      // 加载失败时使用默认 1:1 比例
+      resolve({ width: 1024, height: 1024 });
+    };
+    img.src = url;
+  });
+}
+
+/**
+ * 缓存图片尺寸，避免重复加载
+ */
+const imageDimensionsCache = new Map<string, { width: number; height: number }>();
+
+/**
+ * 批量预加载图片尺寸
+ */
+async function preloadImageDimensions(urls: string[]): Promise<void> {
+  const uncachedUrls = urls.filter(url => url && !imageDimensionsCache.has(url));
+  if (uncachedUrls.length === 0) return;
+  
+  const promises = uncachedUrls.map(async (url) => {
+    const dims = await getImageDimensions(url);
+    imageDimensionsCache.set(url, dims);
+  });
+  
+  await Promise.all(promises);
+}
+
+/**
+ * 获取缓存的图片尺寸，如果没有则返回默认值
+ */
+function getCachedDimensions(url: string): { width: number; height: number } {
+  return imageDimensionsCache.get(url) || { width: 1024, height: 1024 };
 }
 
 /**
@@ -1379,7 +1469,7 @@ export function renderArtistData(
       status: 'pending' | 'generating' | 'completed' | 'failed';
       error?: string;
       imageUrl?: string;
-      code?: string;
+      name?: string;  // 存储的是 kfPrompt.code，如 "S01-01-1"
     }>;
     // 统计信息
     stats?: {
@@ -1390,7 +1480,32 @@ export function renderArtistData(
       totalKeyframes?: number;
       completedKeyframes?: number;
     };
+    // 提示词信息（用于显示在图片卡片上）
+    prompts?: {
+      characterPrompts?: Array<{ id: string; prompt: string; name: string }>;
+      scenePrompts?: Array<{ id: string; prompt: string; name: string }>;
+      keyframePrompts?: Array<{ id: string; prompt: string; code: string; referenceIds?: string[] }>;
+    };
   }
+): void {
+  // 收集所有需要显示的图片 URL 并预加载尺寸
+  const allImageUrls: string[] = [];
+  data?.characterImages?.forEach(img => img.imageUrl && allImageUrls.push(img.imageUrl));
+  data?.sceneImages?.forEach(img => img.imageUrl && allImageUrls.push(img.imageUrl));
+  data?.keyframeImages?.forEach(img => img.imageUrl && allImageUrls.push(img.imageUrl));
+  
+  // 异步预加载图片尺寸，然后渲染
+  preloadImageDimensions(allImageUrls).then(() => {
+    renderArtistDataInternal(editor, data);
+  });
+}
+
+/**
+ * 内部渲染函数（在图片尺寸加载完成后调用）
+ */
+function renderArtistDataInternal(
+  editor: Editor,
+  data: Parameters<typeof renderArtistData>[1]
 ): void {
   const area = STAGE_AREAS.artist;
   const gap = 15;
@@ -1407,6 +1522,19 @@ export function renderArtistData(
     props: { text: '🖼️ 美工阶段 - 图片生成', size: 'm', font: 'sans', color: 'black' }
   });
   currentY += 50;
+
+  // 根据提示词ID对图片分组做一次“防串类”过滤，避免错误数据混入
+  const charPromptIds = new Set<string>(data?.prompts?.characterPrompts?.map(p => p.id) || []);
+  const scenePromptIds = new Set<string>(data?.prompts?.scenePrompts?.map(p => p.id) || []);
+  const kfPromptIds = new Set<string>(data?.prompts?.keyframePrompts?.map(p => p.id) || []);
+
+  const filterByPrompt = (imgs: Array<{ promptId: string; status: string }> | undefined, allow: Set<string>) =>
+    (imgs || []).filter(img => img.status !== 'failed' && (allow.size === 0 || allow.has(img.promptId)));
+
+  // 归类成功图片（若没有 prompts 也不做强过滤）
+  const successCharacterImages = filterByPrompt(data?.characterImages, charPromptIds);
+  const successSceneImages = filterByPrompt(data?.sceneImages, scenePromptIds);
+  const successKeyframeImages = filterByPrompt(data?.keyframeImages, kfPromptIds);
 
   // ===== 统计信息 =====
   if (data?.stats) {
@@ -1445,9 +1573,70 @@ export function renderArtistData(
   }
 
   // 图片卡片配置
-  const cardW = 200;
-  const cardH = 240;
-  const cols = 4;
+  const cardW = 380;         // 卡片宽度（固定）
+  const imgW = cardW - 20;   // 图片显示宽度（固定）
+  const promptAreaH = 100;   // 提示词区域高度
+  const nameRowH = 30;       // 名称行高度
+  const cardPadding = 20;    // 卡片内边距
+  const cols = 5;            // 一行5个
+  
+  // 根据图片 URL 计算显示高度（基于固定宽度和实际宽高比）
+  const calcImageHeight = (imageUrl: string | undefined): number => {
+    if (!imageUrl) return 280; // 默认高度
+    const dims = getCachedDimensions(imageUrl);
+    const aspectRatio = dims.width / dims.height;
+    // 基于固定宽度计算高度，限制最大高度为 500
+    return Math.min(Math.round(imgW / aspectRatio), 500);
+  };
+
+  // 提示词换行处理（每行20个字）
+  const wrapPrompt = (prompt: string, charsPerLine = 20, maxLines = 4) => {
+    if (!prompt) return '';
+    const lines: string[] = [];
+    for (let i = 0; i < prompt.length && lines.length < maxLines; i += charsPerLine) {
+      const line = prompt.substring(i, i + charsPerLine);
+      lines.push(line);
+    }
+    if (prompt.length > charsPerLine * maxLines) {
+      lines[maxLines - 1] = lines[maxLines - 1].substring(0, charsPerLine - 3) + '...';
+    }
+    return lines.join('\n');
+  };
+  
+  // 根据 promptId 或名称获取提示词
+  const getPromptText = (promptId: string, name: string | undefined, type: 'character' | 'scene' | 'keyframe') => {
+    if (!data?.prompts) return '';
+    if (type === 'character') {
+      // 先按 ID 查找，如果找不到则按名称查找
+      let found = data.prompts.characterPrompts?.find(p => p.id === promptId);
+      if (!found && name) {
+        found = data.prompts.characterPrompts?.find(p => p.name === name);
+      }
+      return found?.prompt || '';
+    } else if (type === 'scene') {
+      let found = data.prompts.scenePrompts?.find(p => p.id === promptId);
+      if (!found && name) {
+        found = data.prompts.scenePrompts?.find(p => p.name === name);
+      }
+      return found?.prompt || '';
+    } else {
+      let found = data.prompts.keyframePrompts?.find(p => p.id === promptId);
+      if (!found && name) {
+        found = data.prompts.keyframePrompts?.find(p => p.code === name);
+      }
+      return found?.prompt || '';
+    }
+  };
+
+  // 获取关键帧的参考图编号
+  const getKeyframeReferenceIds = (promptId: string, code: string | undefined): string[] => {
+    if (!data?.prompts?.keyframePrompts) return [];
+    let found = data.prompts.keyframePrompts.find(p => p.id === promptId);
+    if (!found && code) {
+      found = data.prompts.keyframePrompts.find(p => p.code === code);
+    }
+    return found?.referenceIds || [];
+  };
 
   // 状态图标
   const statusIcons: Record<string, string> = {
@@ -1466,7 +1655,7 @@ export function renderArtistData(
   };
 
   // ===== 角色参考图区块 =====
-  if (data?.characterImages && data.characterImages.length > 0) {
+  if (successCharacterImages.length > 0) {
     // 区块标题
     editor.createShape({
       type: 'geo', x: area.x + 20, y: currentY,
@@ -1478,11 +1667,17 @@ export function renderArtistData(
     });
     currentY += 50;
 
-    // 角色图片网格
+    // 角色图片网格 - 每行跟踪最大高度
     let colX = area.x + 30;
     let rowY = currentY;
+    let rowMaxH = 0;  // 当前行最大卡片高度
 
-    data.characterImages.forEach((img, idx) => {
+    successCharacterImages.forEach((img, idx) => {
+      // 计算此图片的动态高度
+      const imgH = calcImageHeight(img.imageUrl);
+      const cardH = imgH + promptAreaH + nameRowH + cardPadding;
+      rowMaxH = Math.max(rowMaxH, cardH);
+
       // 卡片背景
       editor.createShape({
         type: 'geo', x: colX, y: rowY,
@@ -1491,6 +1686,8 @@ export function renderArtistData(
 
       // 图片预览区域 (占位或实际图片)
       if (img.status === 'completed' && img.imageUrl) {
+        // 获取实际图片尺寸
+        const dims = getCachedDimensions(img.imageUrl);
         // 创建图片资源和形状 (tldraw asset ID 必须以 "asset:" 开头)
         const assetId = `asset:${img.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
         editor.createAssets([{
@@ -1500,8 +1697,8 @@ export function renderArtistData(
           props: {
             name: img.name || 'character',
             src: img.imageUrl,
-            w: cardW - 20,
-            h: cardH - 60,
+            w: dims.width,
+            h: dims.height,
             mimeType: 'image/png',
             isAnimated: false,
           },
@@ -1511,48 +1708,65 @@ export function renderArtistData(
           type: 'image',
           x: colX + 10,
           y: rowY + 10,
-          props: { assetId, w: cardW - 20, h: cardH - 60 },
+          props: { assetId, w: imgW, h: imgH },
         });
       } else {
         // 占位符
+        const defaultH = 280;
         editor.createShape({
           type: 'geo', x: colX + 10, y: rowY + 10,
-          props: { geo: 'rectangle', w: cardW - 20, h: cardH - 60, color: 'light-blue', fill: 'pattern', dash: 'dotted', size: 's' }
+          props: { geo: 'rectangle', w: imgW, h: defaultH, color: 'light-blue', fill: 'pattern', dash: 'dotted', size: 's' }
         });
         editor.createShape({
-          type: 'text', x: colX + 60, y: rowY + 80,
+          type: 'text', x: colX + cardW / 2 - 20, y: rowY + defaultH / 2,
           props: { text: statusIcons[img.status] || '⏳', size: 'l', font: 'sans', color: 'grey' }
         });
       }
 
-      // 名称和状态
+      // 名称和状态（图片下方）
+      const nameY = rowY + imgH + 15;
       editor.createShape({
-        type: 'text', x: colX + 10, y: rowY + cardH - 40,
+        type: 'text', x: colX + 10, y: nameY,
         props: { text: `${statusIcons[img.status]} ${img.name || `角色${idx + 1}`}`, size: 's', font: 'sans', color: 'black' }
+      });
+
+      // 显示提示词（图片下方，换行显示，黑色字体）
+      const promptText = getPromptText(img.promptId, img.name, 'character');
+      const promptY = nameY + nameRowH;
+      editor.createShape({
+        type: 'text', x: colX + 10, y: promptY,
+        props: { 
+          text: promptText ? wrapPrompt(promptText, 20, 4) : '(无提示词)', 
+          size: 's', 
+          font: 'mono', 
+          color: 'black'
+        }
       });
 
       // 错误信息
       if (img.status === 'failed' && img.error) {
         editor.createShape({
           type: 'text', x: colX + 10, y: rowY + cardH - 20,
-          props: { text: img.error.substring(0, 15), size: 's', font: 'sans', color: 'red' }
+          props: { text: img.error.substring(0, 30), size: 's', font: 'sans', color: 'red' }
         });
       }
 
       // 布局推进
       if ((idx + 1) % cols === 0) {
         colX = area.x + 30;
-        rowY += cardH + gap;
+        rowY += rowMaxH + gap;
+        rowMaxH = 0;  // 重置行最大高度
       } else {
         colX += cardW + gap;
       }
     });
 
-    currentY = rowY + (data.characterImages.length % cols === 0 ? 0 : cardH) + gap + 30;
+    // 如果最后一行没填满，也要加上该行的高度
+    currentY = rowY + (successCharacterImages.length % cols === 0 ? 0 : rowMaxH) + gap + 30;
   }
 
   // ===== 场景参考图区块 =====
-  if (data?.sceneImages && data.sceneImages.length > 0) {
+  if (successSceneImages.length > 0) {
     // 区块标题
     editor.createShape({
       type: 'geo', x: area.x + 20, y: currentY,
@@ -1564,11 +1778,17 @@ export function renderArtistData(
     });
     currentY += 50;
 
-    // 场景图片网格
+    // 场景图片网格 - 每行跟踪最大高度
     let colX = area.x + 30;
     let rowY = currentY;
+    let rowMaxH = 0;  // 当前行最大卡片高度
 
-    data.sceneImages.forEach((img, idx) => {
+    successSceneImages.forEach((img, idx) => {
+      // 计算此图片的动态高度
+      const imgH = calcImageHeight(img.imageUrl);
+      const cardH = imgH + promptAreaH + nameRowH + cardPadding;
+      rowMaxH = Math.max(rowMaxH, cardH);
+
       // 卡片背景
       editor.createShape({
         type: 'geo', x: colX, y: rowY,
@@ -1577,6 +1797,8 @@ export function renderArtistData(
 
       // 图片预览区域
       if (img.status === 'completed' && img.imageUrl) {
+        // 获取实际图片尺寸
+        const dims = getCachedDimensions(img.imageUrl);
         const assetId = `asset:${img.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
         editor.createAssets([{
           id: assetId,
@@ -1585,8 +1807,8 @@ export function renderArtistData(
           props: {
             name: img.name || 'scene',
             src: img.imageUrl,
-            w: cardW - 20,
-            h: cardH - 60,
+            w: dims.width,
+            h: dims.height,
             mimeType: 'image/png',
             isAnimated: false,
           },
@@ -1596,39 +1818,64 @@ export function renderArtistData(
           type: 'image',
           x: colX + 10,
           y: rowY + 10,
-          props: { assetId, w: cardW - 20, h: cardH - 60 },
+          props: { assetId, w: imgW, h: imgH },
         });
       } else {
+        // 占位符
+        const defaultH = 280;
         editor.createShape({
           type: 'geo', x: colX + 10, y: rowY + 10,
-          props: { geo: 'rectangle', w: cardW - 20, h: cardH - 60, color: 'light-green', fill: 'pattern', dash: 'dotted', size: 's' }
+          props: { geo: 'rectangle', w: imgW, h: defaultH, color: 'light-green', fill: 'pattern', dash: 'dotted', size: 's' }
         });
         editor.createShape({
-          type: 'text', x: colX + 60, y: rowY + 80,
+          type: 'text', x: colX + cardW / 2 - 20, y: rowY + defaultH / 2,
           props: { text: statusIcons[img.status] || '⏳', size: 'l', font: 'sans', color: 'grey' }
         });
       }
 
-      // 名称和状态
+      // 名称和状态（图片下方）
+      const sceneNameY = rowY + imgH + 15;
       editor.createShape({
-        type: 'text', x: colX + 10, y: rowY + cardH - 40,
+        type: 'text', x: colX + 10, y: sceneNameY,
         props: { text: `${statusIcons[img.status]} ${img.name || `场景${idx + 1}`}`, size: 's', font: 'sans', color: 'black' }
+      });
+
+      // 显示提示词（图片下方，换行显示，黑色字体）
+      const scenePromptText = getPromptText(img.promptId, img.name, 'scene');
+      const scenePromptY = sceneNameY + nameRowH;
+      editor.createShape({
+        type: 'text', x: colX + 10, y: scenePromptY,
+        props: { 
+          text: scenePromptText ? wrapPrompt(scenePromptText, 20, 4) : '(无提示词)', 
+          size: 's', 
+          font: 'mono', 
+          color: 'black'
+        }
       });
 
       // 布局推进
       if ((idx + 1) % cols === 0) {
         colX = area.x + 30;
-        rowY += cardH + gap;
+        rowY += rowMaxH + gap;
+        rowMaxH = 0;  // 重置行最大高度
       } else {
         colX += cardW + gap;
       }
     });
 
-    currentY = rowY + (data.sceneImages.length % cols === 0 ? 0 : cardH) + gap + 30;
+    // 如果最后一行没填满，也要加上该行的高度
+    currentY = rowY + (successSceneImages.length % cols === 0 ? 0 : rowMaxH) + gap + 30;
   }
 
   // ===== 关键帧图片区块 =====
-  if (data?.keyframeImages && data.keyframeImages.length > 0) {
+  
+  // 调试日志：查看关键帧数据关联
+  console.log('[renderArtistData] 关键帧图片数据:', {
+    keyframeImages: successKeyframeImages.map(img => ({ id: img.id, promptId: img.promptId, name: img.name })),
+    keyframePrompts: data?.prompts?.keyframePrompts?.map(p => ({ id: p.id, code: p.code, hasPrompt: !!p.prompt, refIds: p.referenceIds })),
+  });
+  
+  if (successKeyframeImages.length > 0) {
     // 区块标题
     editor.createShape({
       type: 'geo', x: area.x + 20, y: currentY,
@@ -1640,32 +1887,43 @@ export function renderArtistData(
     });
     currentY += 50;
 
-    // 关键帧图片网格 (6列更紧凑)
-    const kfCols = 6;
-    const kfCardW = 160;
-    const kfCardH = 200;
+    // 关键帧图片网格 - 每行跟踪最大高度
+    const kfCols = cols;  // 5列
+    const kfRefH = 25;    // 参考图编号行高度
+    const kfPromptH = 80; // 关键帧提示词区域
     let colX = area.x + 30;
     let rowY = currentY;
+    let rowMaxH = 0;  // 当前行最大卡片高度
 
-    data.keyframeImages.forEach((img, idx) => {
+    successKeyframeImages.forEach((img, idx) => {
+      // 计算此图片的动态高度
+      const kfImgH = calcImageHeight(img.imageUrl);
+      const kfCardH = kfImgH + kfRefH + kfPromptH + nameRowH + 25;
+      rowMaxH = Math.max(rowMaxH, kfCardH);
+
       // 卡片背景
       editor.createShape({
         type: 'geo', x: colX, y: rowY,
-        props: { geo: 'rectangle', w: kfCardW, h: kfCardH, color: statusColors[img.status] || 'grey', fill: 'semi', dash: 'draw', size: 's' }
+        props: { geo: 'rectangle', w: cardW, h: kfCardH, color: statusColors[img.status] || 'grey', fill: 'semi', dash: 'draw', size: 's' }
       });
 
       // 图片预览区域
+      // 注意: img.name 存储的是 kfPrompt.code（如 "S01-01-1"）
+      const kfCode = img.name || `KF${idx + 1}`;
+      
       if (img.status === 'completed' && img.imageUrl) {
+        // 获取实际图片尺寸
+        const dims = getCachedDimensions(img.imageUrl);
         const assetId = `asset:${img.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
         editor.createAssets([{
           id: assetId,
           type: 'image',
           typeName: 'asset',
           props: {
-            name: img.code || 'keyframe',
+            name: kfCode,
             src: img.imageUrl,
-            w: kfCardW - 16,
-            h: kfCardH - 50,
+            w: dims.width,
+            h: dims.height,
             mimeType: 'image/png',
             isAnimated: false,
           },
@@ -1673,41 +1931,72 @@ export function renderArtistData(
         }]);
         editor.createShape({
           type: 'image',
-          x: colX + 8,
-          y: rowY + 8,
-          props: { assetId, w: kfCardW - 16, h: kfCardH - 50 },
+          x: colX + 10,
+          y: rowY + 10,
+          props: { assetId, w: imgW, h: kfImgH },
         });
       } else {
+        // 占位符
+        const defaultKfH = 200;
         editor.createShape({
-          type: 'geo', x: colX + 8, y: rowY + 8,
-          props: { geo: 'rectangle', w: kfCardW - 16, h: kfCardH - 50, color: 'light-violet', fill: 'pattern', dash: 'dotted', size: 's' }
+          type: 'geo', x: colX + 10, y: rowY + 10,
+          props: { geo: 'rectangle', w: imgW, h: defaultKfH, color: 'light-violet', fill: 'pattern', dash: 'dotted', size: 's' }
         });
         editor.createShape({
-          type: 'text', x: colX + 50, y: rowY + 60,
+          type: 'text', x: colX + cardW / 2 - 20, y: rowY + defaultKfH / 2,
           props: { text: statusIcons[img.status] || '⏳', size: 'l', font: 'sans', color: 'grey' }
         });
       }
 
-      // 编号和状态
+      // 编号和状态（图片下方）
+      const kfNameY = rowY + kfImgH + 15;
       editor.createShape({
-        type: 'text', x: colX + 8, y: rowY + kfCardH - 35,
-        props: { text: `${statusIcons[img.status]} ${img.code || `KF${idx + 1}`}`, size: 's', font: 'mono', color: 'violet' }
+        type: 'text', x: colX + 10, y: kfNameY,
+        props: { text: `${statusIcons[img.status]} ${kfCode}`, size: 's', font: 'mono', color: 'violet' }
+      });
+
+      // 显示参考图编号（图生图输入）
+      const kfRefIds = getKeyframeReferenceIds(img.promptId, kfCode);
+      const kfRefY = kfNameY + nameRowH;
+      editor.createShape({
+        type: 'text', x: colX + 10, y: kfRefY,
+        props: { 
+          text: kfRefIds.length > 0 ? `📎 参考: ${kfRefIds.join(', ')}` : '(无参考图)', 
+          size: 's', 
+          font: 'mono', 
+          color: 'blue'
+        }
+      });
+
+      // 显示提示词（参考图编号下方，换行显示，黑色字体）
+      const kfPromptText = getPromptText(img.promptId, kfCode, 'keyframe');
+      const kfPromptY = kfRefY + kfRefH;
+      editor.createShape({
+        type: 'text', x: colX + 10, y: kfPromptY,
+        props: { 
+          text: kfPromptText ? wrapPrompt(kfPromptText, 20, 3) : '(无提示词)', 
+          size: 's', 
+          font: 'mono', 
+          color: 'black'
+        }
       });
 
       // 布局推进
       if ((idx + 1) % kfCols === 0) {
         colX = area.x + 30;
-        rowY += kfCardH + gap;
+        rowY += rowMaxH + gap;
+        rowMaxH = 0;  // 重置行最大高度
       } else {
-        colX += kfCardW + gap;
+        colX += cardW + gap;
       }
     });
 
-    currentY = rowY + (data.keyframeImages.length % kfCols === 0 ? 0 : kfCardH) + gap + 30;
+    // 如果最后一行没填满，也要加上该行的高度
+    currentY = rowY + (successKeyframeImages.length % kfCols === 0 ? 0 : rowMaxH) + gap + 30;
   }
 
-  // 如果没有任何图片数据，显示提示
-  if (!data?.characterImages?.length && !data?.sceneImages?.length && !data?.keyframeImages?.length) {
+  // 如果没有任何成功的图片数据，显示提示
+  if (!successCharacterImages.length && !successSceneImages.length && !successKeyframeImages.length) {
     editor.createShape({
       type: 'geo', x: area.x + 50, y: currentY,
       props: { geo: 'rectangle', w: 400, h: 100, color: 'yellow', fill: 'semi', dash: 'draw', size: 's' }
@@ -1722,4 +2011,569 @@ export function renderArtistData(
   // 根据内容高度调整背景
   const contentHeight = currentY - area.y + 50;
   updateStageBackgroundHeight(editor, 'artist', contentHeight);
+}
+
+/**
+ * 渲染导演阶段数据到画布
+ * 显示分镜卡片列表，每张卡片包含：镜号、人物、地点、景别、运镜、时长、画面内容、参考图片
+ */
+export function renderDirectorData(
+  editor: Editor,
+  data: {
+    // 分镜数据 - 支持两种格式：
+    // 1. 多集格式: { episodes: [{ episodeNumber, shots }] }
+    // 2. 单集格式: { episodeNumber, shots } (直接存储的单集数据)
+    storyboard?: {
+      episodes?: Array<{
+        episodeNumber: number;
+        shots?: Array<{
+          id?: string;
+          shotId?: string;
+          shotNumber?: string;
+          location: string;
+          content?: string;
+          description?: string;
+          shotSize: string;
+          cameraAngle: string;
+          cameraMovement: string;
+          duration: number;
+          dialogue?: string;
+          assignee?: string;
+          character?: string;
+          notes?: string;
+        }>;
+      }>;
+      // 单集格式的字段
+      episodeNumber?: number;
+      shots?: Array<{
+        id?: string;
+        shotId?: string;
+        shotNumber?: string;
+        location: string;
+        content?: string;
+        description?: string;
+        shotSize: string;
+        cameraAngle: string;
+        cameraMovement: string;
+        duration: number;
+        dialogue?: string;
+        assignee?: string;
+        character?: string;
+        notes?: string;
+      }>;
+    };
+    // 美工数据
+    artist?: {
+      characterImages?: Array<{
+        id: string;
+        name?: string;
+        imageUrl?: string;
+        status: string;
+      }>;
+      sceneImages?: Array<{
+        id: string;
+        name?: string;
+        imageUrl?: string;
+        status: string;
+      }>;
+      keyframeImages?: Array<{
+        id: string;
+        name?: string;
+        imageUrl?: string;
+        status: string;
+      }>;
+    };
+    // 导演数据 - 视频生成状态
+    director?: {
+      videos?: Array<{
+        id: string;
+        shotId: string;
+        shotNumber?: string;
+        status: 'pending' | 'generating' | 'completed' | 'failed';
+        videoUrl?: string;
+        error?: string;
+      }>;
+    };
+  }
+): void {
+  const area = STAGE_AREAS.director;
+  const gap = 15;
+  let currentY = area.y + 80;
+
+  // 调试日志
+  const hasEpisodes = !!data?.storyboard?.episodes?.length;
+  const hasDirectShots = !!data?.storyboard?.shots?.length;
+  console.log('[renderDirectorData] 接收到的数据:', {
+    hasStoryboard: !!data?.storyboard,
+    hasEpisodes,
+    episodesCount: data?.storyboard?.episodes?.length || 0,
+    hasDirectShots,
+    directShotsCount: data?.storyboard?.shots?.length || 0,
+    hasArtist: !!data?.artist,
+    hasDirector: !!data?.director,
+  });
+
+  // 清除旧数据
+  clearStageData(editor, 'director');
+
+  // 收集所有镜头 - 兼容两种格式
+  const allShots: Array<{
+    id: string;
+    shotNumber: string;
+    location: string;
+    content: string;
+    shotSize: string;
+    cameraAngle: string;
+    cameraMovement: string;
+    duration: number;
+    dialogue?: string;
+    assignee?: string;
+    notes?: string;
+    episodeNumber: number;
+  }> = [];
+
+  // 格式1: 多集格式 { episodes: [{ episodeNumber, shots }] }
+  if (hasEpisodes && data?.storyboard?.episodes) {
+    for (const episode of data.storyboard.episodes) {
+      if (episode.shots) {
+        for (const shot of episode.shots) {
+          allShots.push({
+            id: shot.id || shot.shotId || `shot-${allShots.length}`,
+            shotNumber: shot.shotNumber || shot.shotId || `S${String(episode.episodeNumber).padStart(2, '0')}-${String(allShots.length + 1).padStart(2, '0')}`,
+            location: shot.location || '',
+            content: shot.content || shot.description || '',
+            shotSize: shot.shotSize,
+            cameraAngle: shot.cameraAngle,
+            cameraMovement: shot.cameraMovement,
+            duration: shot.duration || 5,
+            dialogue: shot.dialogue,
+            assignee: shot.assignee || shot.character,
+            notes: shot.notes,
+            episodeNumber: episode.episodeNumber,
+          });
+        }
+      }
+    }
+  }
+  // 格式2: 单集格式 { episodeNumber, shots }
+  else if (hasDirectShots && data?.storyboard?.shots) {
+    const episodeNum = data.storyboard.episodeNumber || 1;
+    for (const shot of data.storyboard.shots) {
+      allShots.push({
+        id: shot.id || shot.shotId || `shot-${allShots.length}`,
+        shotNumber: shot.shotNumber || shot.shotId || `S${String(episodeNum).padStart(2, '0')}-${String(allShots.length + 1).padStart(2, '0')}`,
+        location: shot.location || '',
+        content: shot.content || shot.description || '',
+        shotSize: shot.shotSize,
+        cameraAngle: shot.cameraAngle,
+        cameraMovement: shot.cameraMovement,
+        duration: shot.duration || 5,
+        dialogue: shot.dialogue,
+        assignee: shot.assignee || shot.character,
+        notes: shot.notes,
+        episodeNumber: episodeNum,
+      });
+    }
+  }
+
+  console.log('[renderDirectorData] 收集到的镜头数:', allShots.length);
+
+  // 如果没有分镜数据，显示提示
+  if (allShots.length === 0) {
+    editor.createShape({
+      type: 'geo', x: area.x + 50, y: currentY,
+      props: { geo: 'rectangle', w: 500, h: 120, color: 'yellow', fill: 'semi', dash: 'draw', size: 's' }
+    });
+    editor.createShape({
+      type: 'text', x: area.x + 70, y: currentY + 30,
+      props: { text: '🎬 请先完成分镜阶段\n分镜数据将自动显示在这里', size: 'm', font: 'sans', color: 'black' }
+    });
+    updateStageBackgroundHeight(editor, 'director', 300);
+    return;
+  }
+
+  // 统计信息
+  const totalShots = allShots.length;
+  const totalDuration = allShots.reduce((sum, s) => sum + (s.duration || 0), 0);
+  const videos = data?.director?.videos || [];
+  const completedVideos = videos.filter(v => v.status === 'completed').length;
+
+  // ===== 标题和统计 =====
+  editor.createShape({
+    type: 'geo', x: area.x + 30, y: currentY,
+    props: { geo: 'rectangle', w: 1800, h: 60, color: 'green', fill: 'semi', dash: 'draw', size: 's' }
+  });
+  editor.createShape({
+    type: 'text', x: area.x + 50, y: currentY + 15,
+    props: { 
+      text: `🎬 导演阶段 - 分镜卡片  |  总镜头: ${totalShots}  |  总时长: ${totalDuration}s  |  已生成: ${completedVideos}/${totalShots}`, 
+      size: 'm', font: 'sans', color: 'black' 
+    }
+  });
+  currentY += 80;
+
+  // ===== 分镜卡片配置 =====
+  const cardW = 1800;       // 卡片宽度
+  const headerH = 60;       // 头部高度
+  const contentH = 120;     // 内容区域高度
+  const resourceH = 180;    // 资源区域高度（包含已选资源+视频预览）
+  const cardH = headerH + contentH + resourceH + 30;  // 总高度
+  
+  // 图片和视频尺寸
+  const thumbW = 140;       // 资源缩略图宽度
+  const thumbH = 105;       // 资源缩略图高度
+  const videoW = 240;       // 视频预览宽度
+  const videoH = 135;       // 视频预览高度
+
+  // 文本换行工具
+  const wrapText = (text: string, maxChars: number): string => {
+    if (!text || text.length <= maxChars) return text;
+    const lines: string[] = [];
+    for (let i = 0; i < text.length; i += maxChars) {
+      lines.push(text.substring(i, i + maxChars));
+    }
+    return lines.join('\n');
+  };
+
+  // 视频状态图标
+  const videoStatusIcons: Record<string, string> = {
+    pending: '⏳',
+    generating: '🔄',
+    completed: '✅',
+    failed: '❌',
+  };
+
+  // 查找镜头的视频状态 - 同时用 shotId 和 shotNumber 匹配
+  const getVideoStatus = (shotId: string, shotNumber: string): { status: string; videoUrl?: string } => {
+    // 优先用 shotId 匹配，如果找不到则用 shotNumber 匹配
+    let video = videos.find(v => v.shotId === shotId);
+    if (!video) {
+      video = videos.find(v => v.shotNumber === shotNumber || v.shotId === shotNumber);
+    }
+    return video ? { status: video.status, videoUrl: video.videoUrl } : { status: 'pending' };
+  };
+
+  // 查找角色图片
+  const getCharacterImage = (name: string | undefined): string | undefined => {
+    if (!name || !data?.artist?.characterImages) return undefined;
+    const img = data.artist.characterImages.find(i => i.name === name && i.status === 'completed');
+    return img?.imageUrl;
+  };
+
+  // 查找场景图片
+  const getSceneImage = (location: string | undefined): string | undefined => {
+    if (!location || !data?.artist?.sceneImages) return undefined;
+    const img = data.artist.sceneImages.find(i => i.name === location && i.status === 'completed');
+    return img?.imageUrl;
+  };
+
+  // 查找关键帧图片
+  const getKeyframeImage = (shotNumber: string): string | undefined => {
+    if (!data?.artist?.keyframeImages) return undefined;
+    const img = data.artist.keyframeImages.find(i => 
+      i.name?.includes(shotNumber) && i.status === 'completed'
+    );
+    return img?.imageUrl;
+  };
+
+  // ===== 渲染每个分镜卡片 =====
+  for (const shot of allShots) {
+    const videoInfo = getVideoStatus(shot.id, shot.shotNumber);
+    const statusIcon = videoStatusIcons[videoInfo.status] || '⏳';
+    const cardColor = videoInfo.status === 'completed' ? 'green' : 
+                      videoInfo.status === 'generating' ? 'yellow' : 
+                      videoInfo.status === 'failed' ? 'red' : 'light-green';
+
+    // 卡片背景
+    editor.createShape({
+      type: 'geo', x: area.x + 30, y: currentY,
+      props: { geo: 'rectangle', w: cardW, h: cardH, color: cardColor, fill: 'semi', dash: 'draw', size: 's' }
+    });
+
+    // ===== 头部行: 镜号 | 人物 | 地点 | 景别 | 机位 | 运镜 | 时长 | 状态 =====
+    let headerX = area.x + 50;
+    const headerY = currentY + 18;
+
+    // 拖拽手柄 + 镜号
+    editor.createShape({
+      type: 'text', x: headerX, y: headerY,
+      props: { text: `⋮⋮ ${shot.shotNumber}`, size: 'm', font: 'mono', color: 'green' }
+    });
+    headerX += 160;
+
+    // 人物标签
+    const assigneeText = shot.assignee ? `[👤 ${shot.assignee}]` : '[👤 无]';
+    editor.createShape({
+      type: 'text', x: headerX, y: headerY,
+      props: { text: assigneeText, size: 'm', font: 'sans', color: shot.assignee ? 'orange' : 'grey' }
+    });
+    headerX += 200;
+
+    // 地点标签
+    editor.createShape({
+      type: 'text', x: headerX, y: headerY,
+      props: { text: `[📍 ${shot.location || '未知'}]`, size: 'm', font: 'sans', color: 'blue' }
+    });
+    headerX += 280;
+
+    // 景别
+    editor.createShape({
+      type: 'text', x: headerX, y: headerY,
+      props: { text: `[${shot.shotSize || '中景'}]`, size: 'm', font: 'sans', color: 'violet' }
+    });
+    headerX += 120;
+
+    // 机位
+    editor.createShape({
+      type: 'text', x: headerX, y: headerY,
+      props: { text: `[${shot.cameraAngle || '平视'}]`, size: 'm', font: 'sans', color: 'violet' }
+    });
+    headerX += 120;
+
+    // 运镜
+    editor.createShape({
+      type: 'text', x: headerX, y: headerY,
+      props: { text: `[${shot.cameraMovement || '固定'}]`, size: 'm', font: 'sans', color: 'violet' }
+    });
+    headerX += 120;
+
+    // 时长
+    editor.createShape({
+      type: 'text', x: headerX, y: headerY,
+      props: { text: `${shot.duration || 5}s`, size: 'm', font: 'mono', color: 'black' }
+    });
+    headerX += 100;
+
+    // 视频状态
+    editor.createShape({
+      type: 'text', x: area.x + cardW - 80, y: headerY,
+      props: { text: statusIcon, size: 'l', font: 'sans', color: 'black' }
+    });
+
+    // ===== 分割线 =====
+    editor.createShape({
+      type: 'geo', x: area.x + 40, y: currentY + headerH,
+      props: { geo: 'rectangle', w: cardW - 20, h: 2, color: 'light-green', fill: 'solid', dash: 'draw', size: 's' }
+    });
+
+    // ===== 画面内容区域 =====
+    const contentY = currentY + headerH + 15;
+    editor.createShape({
+      type: 'text', x: area.x + 50, y: contentY,
+      props: { text: wrapText(shot.content || '（无画面内容）', 120), size: 'm', font: 'sans', color: 'black' }
+    });
+
+    // 对白（如果有）
+    if (shot.dialogue && shot.dialogue !== '无') {
+      editor.createShape({
+        type: 'text', x: area.x + 50, y: contentY + 45,
+        props: { text: `💬 ${wrapText(shot.dialogue, 100)}`, size: 'm', font: 'sans', color: 'grey' }
+      });
+    }
+
+    // ===== 分割线 =====
+    editor.createShape({
+      type: 'geo', x: area.x + 40, y: currentY + headerH + contentH,
+      props: { geo: 'rectangle', w: cardW - 20, h: 2, color: 'light-green', fill: 'solid', dash: 'draw', size: 's' }
+    });
+
+    // ===== 已选资源区域（左侧） =====
+    const resourceY = currentY + headerH + contentH + 15;
+    editor.createShape({
+      type: 'text', x: area.x + 50, y: resourceY,
+      props: { text: '🖼️ 已选资源:', size: 'm', font: 'sans', color: 'grey' }
+    });
+
+    // 资源缩略图布局
+    let thumbX = area.x + 200;
+    const thumbY = resourceY + 25;
+
+    // 角色图
+    const charImg = getCharacterImage(shot.assignee);
+    if (charImg) {
+      const charAssetId = `asset:dir-char-${shot.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
+      editor.createAssets([{
+        id: charAssetId,
+        type: 'image',
+        typeName: 'asset',
+        props: { name: shot.assignee || 'char', src: charImg, w: thumbW, h: thumbH, mimeType: 'image/png', isAnimated: false },
+        meta: {},
+      }]);
+      editor.createShape({
+        type: 'image', x: thumbX, y: thumbY,
+        props: { assetId: charAssetId, w: thumbW, h: thumbH },
+      });
+      thumbX += thumbW + 15;
+    }
+
+    // 场景图
+    const sceneImg = getSceneImage(shot.location);
+    if (sceneImg) {
+      const sceneAssetId = `asset:dir-scene-${shot.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
+      editor.createAssets([{
+        id: sceneAssetId,
+        type: 'image',
+        typeName: 'asset',
+        props: { name: shot.location || 'scene', src: sceneImg, w: thumbW, h: thumbH, mimeType: 'image/png', isAnimated: false },
+        meta: {},
+      }]);
+      editor.createShape({
+        type: 'image', x: thumbX, y: thumbY,
+        props: { assetId: sceneAssetId, w: thumbW, h: thumbH },
+      });
+      thumbX += thumbW + 15;
+    }
+
+    // 关键帧图
+    const kfImg = getKeyframeImage(shot.shotNumber);
+    if (kfImg) {
+      const kfAssetId = `asset:dir-kf-${shot.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
+      editor.createAssets([{
+        id: kfAssetId,
+        type: 'image',
+        typeName: 'asset',
+        props: { name: shot.shotNumber, src: kfImg, w: thumbW, h: thumbH, mimeType: 'image/png', isAnimated: false },
+        meta: {},
+      }]);
+      editor.createShape({
+        type: 'image', x: thumbX, y: thumbY,
+        props: { assetId: kfAssetId, w: thumbW, h: thumbH },
+      });
+      thumbX += thumbW + 15;
+    }
+
+    // 如果没有任何资源图片
+    if (!charImg && !sceneImg && !kfImg) {
+      editor.createShape({
+        type: 'text', x: thumbX, y: thumbY + 30,
+        props: { text: '(无可用资源)', size: 'm', font: 'sans', color: 'grey' }
+      });
+    }
+
+    // ===== 视频生成区域（右侧） =====
+    const videoAreaX = area.x + 1100;  // 视频区域起始 X
+    
+    // 视频区域标签
+    editor.createShape({
+      type: 'text', x: videoAreaX, y: resourceY,
+      props: { text: '🎬 生成视频:', size: 'm', font: 'sans', color: 'grey' }
+    });
+
+    // 视频预览区域背景
+    const videoPreviewX = videoAreaX + 150;
+    const videoPreviewY = thumbY;
+    
+    if (videoInfo.status === 'completed' && videoInfo.videoUrl) {
+      // 已完成 - 创建视频 asset 和 shape，实现画布内直接播放
+      const videoAssetId = `asset:dir-video-${shot.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
+      
+      // 创建视频 asset
+      editor.createAssets([{
+        id: videoAssetId,
+        type: 'video',
+        typeName: 'asset',
+        props: { 
+          name: `${shot.shotNumber}-video`, 
+          src: videoInfo.videoUrl, 
+          w: videoW, 
+          h: videoH, 
+          mimeType: 'video/mp4', 
+          isAnimated: true 
+        },
+        meta: {},
+      }]);
+      
+      // 创建视频 shape（可直接在画布上播放）
+      editor.createShape({
+        type: 'video', 
+        x: videoPreviewX, 
+        y: videoPreviewY,
+        props: { 
+          assetId: videoAssetId, 
+          w: videoW, 
+          h: videoH 
+        },
+        meta: { videoUrl: videoInfo.videoUrl, shotId: shot.id, shotNumber: shot.shotNumber },
+      });
+      
+      // 在视频右侧放置操作按钮：重新生成 / 下载
+      const btnX = videoPreviewX + videoW + 20;
+      const btnY1 = videoPreviewY;          // 第一行按钮
+      const btnY2 = videoPreviewY + 40;     // 第二行按钮
+
+      // 重新生成按钮
+      editor.createShape({
+        type: 'geo', x: btnX, y: btnY1,
+        props: { geo: 'rectangle', w: 120, h: 32, color: 'green', fill: 'semi', dash: 'solid', size: 's' },
+        meta: { action: 'regenVideo', shotId: shot.id, shotNumber: shot.shotNumber }
+      });
+      editor.createShape({
+        type: 'text', x: btnX + 10, y: btnY1 + 8,
+        props: { text: '🔁 重新生成', size: 's', font: 'sans', color: 'green' },
+        meta: { action: 'regenVideo', shotId: shot.id, shotNumber: shot.shotNumber }
+      });
+
+      // 下载按钮
+      editor.createShape({
+        type: 'geo', x: btnX, y: btnY2,
+        props: { geo: 'rectangle', w: 120, h: 32, color: 'blue', fill: 'semi', dash: 'solid', size: 's' },
+        meta: { action: 'downloadVideo', videoUrl: videoInfo.videoUrl, shotId: shot.id, shotNumber: shot.shotNumber }
+      });
+      editor.createShape({
+        type: 'text', x: btnX + 10, y: btnY2 + 8,
+        props: { text: '⬇️ 下载', size: 's', font: 'sans', color: 'blue' },
+        meta: { action: 'downloadVideo', videoUrl: videoInfo.videoUrl, shotId: shot.id, shotNumber: shot.shotNumber }
+      });
+      
+      // 显示状态标签
+      editor.createShape({
+        type: 'text', x: videoPreviewX, y: videoPreviewY + videoH + 5,
+        props: { text: `✅ ${shot.shotNumber} 视频已生成`, size: 's', font: 'sans', color: 'green' }
+      });
+    } else if (videoInfo.status === 'generating') {
+      // 生成中
+      editor.createShape({
+        type: 'geo', x: videoPreviewX, y: videoPreviewY,
+        props: { geo: 'rectangle', w: videoW, h: videoH, color: 'yellow', fill: 'semi', dash: 'dashed', size: 's' }
+      });
+      editor.createShape({
+        type: 'text', x: videoPreviewX + videoW/2 - 40, y: videoPreviewY + videoH/2 - 15,
+        props: { text: '🔄 生成中...', size: 'm', font: 'sans', color: 'orange' }
+      });
+    } else if (videoInfo.status === 'failed') {
+      // 失败
+      editor.createShape({
+        type: 'geo', x: videoPreviewX, y: videoPreviewY,
+        props: { geo: 'rectangle', w: videoW, h: videoH, color: 'red', fill: 'semi', dash: 'dashed', size: 's' }
+      });
+      editor.createShape({
+        type: 'text', x: videoPreviewX + videoW/2 - 40, y: videoPreviewY + videoH/2 - 15,
+        props: { text: '❌ 生成失败', size: 'm', font: 'sans', color: 'red' }
+      });
+    } else {
+      // 待生成
+      editor.createShape({
+        type: 'geo', x: videoPreviewX, y: videoPreviewY,
+        props: { geo: 'rectangle', w: videoW, h: videoH, color: 'grey', fill: 'none', dash: 'dashed', size: 's' }
+      });
+      editor.createShape({
+        type: 'text', x: videoPreviewX + videoW/2 - 40, y: videoPreviewY + videoH/2 - 15,
+        props: { text: '⏳ 待生成', size: 'm', font: 'sans', color: 'grey' }
+      });
+    }
+
+    // 视频时长显示
+    editor.createShape({
+      type: 'text', x: videoPreviewX + videoW + 20, y: videoPreviewY + videoH/2 - 10,
+      props: { text: `${shot.duration || 5}s`, size: 'm', font: 'mono', color: 'black' }
+    });
+
+    currentY += cardH + gap;
+  }
+
+  // 根据内容高度调整背景
+  const contentHeight = currentY - area.y + 50;
+  updateStageBackgroundHeight(editor, 'director', contentHeight);
+  
+  console.log('导演阶段分镜卡片已渲染，共', allShots.length, '个镜头');
 }

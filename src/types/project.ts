@@ -254,10 +254,14 @@ export interface DirectorData {
 export interface GeneratedVideo {
   id: string;
   shotId: string;              // 关联的镜头ID
+  shotNumber: string;          // 镜号：S01-01
   keyframeAssetId: string;     // 参考关键帧资产ID
   assetId: string;             // 视频资产ID
   status: 'pending' | 'generating' | 'completed' | 'failed';
   duration: number;            // 视频时长
+  videoUrl?: string;           // 生成的视频URL
+  prompt?: string;             // 生成使用的提示词
+  referenceImages?: string[];  // 参考图片URL列表
   error?: string;
   isStale: boolean;
 }

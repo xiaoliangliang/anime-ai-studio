@@ -64,6 +64,26 @@ export interface ImageToVideoOptions {
   nologo?: boolean;
 }
 
+// RunComfy Seedance 1.0 图生视频选项
+export interface RunComfyImageToVideoOptions {
+  prompt: string;
+  imageUrl: string;  // 参考图片的URL
+  duration?: number; // 视频时长，2-12秒
+  resolution?: '480p' | '720p' | '1080p'; // 分辨率
+  ratio?: '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9'; // 宽高比
+}
+
+// RunComfy 图生视频返回结果
+export interface RunComfyVideoResult {
+  success: boolean;
+  videoUrl: string;
+  requestId: string;
+  output?: {
+    video?: string;
+    videos?: string[];
+  };
+}
+
 /**
  * 生成图片并返回 Blob URL
  */
@@ -384,9 +404,78 @@ export async function generateImageToImage(options: ImageToImageOptions): Promis
 }
 
 /**
- * 图生视频功能 - 基于参考图片生成视频
+ * 图生视频功能 - 基于参考图片生成视频 (RunComfy Seedance 1.0)
  *
- * 使用服务端代理调用 Pollinations API (seedance 模型)
+ * 使用服务端代理调用 RunComfy API (ByteDance Seedance 1.0 模型)
+ * 这是新的推荐API，比pollinations更稳定
+ * 
+ * 参数:
+ *  - duration: 2-12 秒
+ *  - resolution: 480p/720p/1080p
+ *  - ratio: 16:9/4:3/1:1/3:4/9:16/21:9/adaptive
+ */
+export async function generateImageToVideoRuncomfy(options: RunComfyImageToVideoOptions): Promise<RunComfyVideoResult> {
+  const {
+    prompt,
+    imageUrl,
+    duration = 5,
+    resolution = '480p',
+    ratio = 'adaptive',
+  } = options;
+
+  const url = `http://localhost:3001/api/runcomfy/img2video`;
+
+  console.log('RunComfy 图生视频请求:', { prompt: prompt.substring(0, 100), imageUrl: imageUrl.substring(0, 100), duration, resolution, ratio });
+
+  try {
+    // RunComfy API 是异步的，服务端会轮询直到完成，可能需要较长时间
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 900000); // 15分钟超时
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt,
+        imageUrl,
+        duration,
+        resolution,
+        ratio,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    console.log('响应状态:', response.status, response.statusText);
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '无法获取错误详情');
+      throw new Error(`RunComfy API 请求失败: ${response.status} ${response.statusText}\n详情: ${errorText}`);
+    }
+
+    const result = await response.json() as RunComfyVideoResult;
+    console.log('RunComfy 图生视频完成:', result);
+
+    if (!result.success || !result.videoUrl) {
+      throw new Error('RunComfy 返回结果无效');
+    }
+
+    return result;
+  } catch (error) {
+    console.error('RunComfy 图生视频失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 图生视频功能 - 基于参考图片生成视频 (Pollinations seedance 模型)
+ * 
+ * [保留] 使用服务端代理调用 Pollinations API (seedance 模型)
+ * 这是旧的API，保留作为备份
+ * 
  * 参数:
  *  - duration: 2-10 秒
  *  - aspectRatio: 16:9 或 9:16

@@ -127,75 +127,80 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
 
       case 'imageDesigner': {
         // 图像设计阶段 - 解析AI返回的数据并转换为项目格式
-        const designerData = data as {
-          referenceImages?: Array<{
-            refId: string;
-            type: 'character' | 'scene';
-            name: string;
-            prompt: string;
-            description?: string;
-          }>;
-          keyframes?: Array<{
-            shotId: string;
-            frameNumber: number;
-            prompt: string;
-            referenceIds?: string[];
-            characters?: string[];
-            scene?: string;
-            description?: string;
-          }>;
-          summary?: {
-            totalCharacters?: number;
-            totalScenes?: number;
-            totalKeyframes?: number;
-          };
-        }
-        
-        // 分离人物和场景参考图
-        const characterPrompts = (designerData.referenceImages || [])
-          .filter(ref => ref.type === 'character')
-          .map(ref => ({
-            id: crypto.randomUUID(),
-            code: ref.refId,
-            name: ref.name,
-            prompt: ref.prompt,
-            type: 'character' as const,
-            isStale: false,
-          }))
-        
-        const scenePrompts = (designerData.referenceImages || [])
-          .filter(ref => ref.type === 'scene')
-          .map(ref => ({
-            id: crypto.randomUUID(),
-            code: ref.refId,
-            name: ref.name,
-            prompt: ref.prompt,
-            type: 'scene' as const,
-            isStale: false,
-          }))
-        
-        // 转换关键帧提示词
-        const keyframePrompts = (designerData.keyframes || []).map(kf => ({
-          id: crypto.randomUUID(),
-          code: `${kf.shotId}-${kf.frameNumber}`,
-          shotId: kf.shotId,
-          frameIndex: kf.frameNumber,
-          prompt: kf.prompt,
-          referenceIds: kf.referenceIds || [],
+        // 兼容两种输入：
+        // 1) 旧格式：{ referenceImages, keyframes }
+        // 2) 新格式：{ characterPrompts, scenePrompts, keyframePrompts }
+        const designerData = data as any;
+
+        const prev = updatedProject.imageDesigner || {
+          characterPrompts: [],
+          scenePrompts: [],
+          keyframePrompts: [],
           isStale: false,
-        }))
-        
+        };
+
+        // 工具：数组去重（按 code）
+        const dedupeByCode = <T extends { code: string }>(arr: T[]): T[] => {
+          const map = new Map<string, T>();
+          arr.forEach(item => { if (!map.has(item.code)) map.set(item.code, item as T); });
+          return Array.from(map.values());
+        };
+
+        // 1) 角色/场景参考图
+        let characterPrompts: any[] = [];
+        let scenePrompts: any[] = [];
+
+        if (Array.isArray(designerData.characterPrompts) || Array.isArray(designerData.scenePrompts)) {
+          // 新格式：直接使用
+          characterPrompts = (designerData.characterPrompts || []).map((p: any) => ({ ...p, type: 'character', isStale: false }));
+          scenePrompts = (designerData.scenePrompts || []).map((p: any) => ({ ...p, type: 'scene', isStale: false }));
+        } else if (Array.isArray(designerData.referenceImages)) {
+          // 旧格式：从 referenceImages 分离
+          characterPrompts = designerData.referenceImages
+            .filter((ref: any) => ref.type === 'character')
+            .map((ref: any) => ({ id: crypto.randomUUID(), code: ref.refId, name: ref.name, prompt: ref.prompt, type: 'character' as const, isStale: false }));
+          scenePrompts = designerData.referenceImages
+            .filter((ref: any) => ref.type === 'scene')
+            .map((ref: any) => ({ id: crypto.randomUUID(), code: ref.refId, name: ref.name, prompt: ref.prompt, type: 'scene' as const, isStale: false }));
+        }
+
+        // 若本次缺失，则保留历史数据，避免被清空或误覆盖
+        if (!characterPrompts.length) characterPrompts = prev.characterPrompts || [];
+        if (!scenePrompts.length) scenePrompts = prev.scenePrompts || [];
+
+        // 2) 关键帧
+        let keyframePrompts: any[] = [];
+        if (Array.isArray(designerData.keyframePrompts)) {
+          keyframePrompts = designerData.keyframePrompts.map((kf: any) => ({ ...kf, isStale: false }));
+        } else if (Array.isArray(designerData.keyframes)) {
+          keyframePrompts = designerData.keyframes.map((kf: any) => ({
+            id: crypto.randomUUID(),
+            code: `${kf.shotId}-${kf.frameNumber}`,
+            shotId: kf.shotId,
+            frameIndex: kf.frameNumber,
+            prompt: kf.prompt,
+            referenceIds: kf.referenceIds || [],
+            characters: kf.characters || [],
+            scene: kf.scene || '',
+            description: kf.description || '',
+            isStale: false,
+          }));
+        } else {
+          keyframePrompts = prev.keyframePrompts || [];
+        }
+
+        // 去重并保存
         updatedProject.imageDesigner = {
-          characterPrompts,
-          scenePrompts,
-          keyframePrompts,
+          characterPrompts: dedupeByCode(characterPrompts),
+          scenePrompts: dedupeByCode(scenePrompts),
+          keyframePrompts: dedupeByCode(keyframePrompts),
           isStale: false,
-        }
-        
+        } as any;
+
         console.log('[MainLayout] 图像设计数据已保存:', {
-          characters: characterPrompts.length,
-          scenes: scenePrompts.length,
-          keyframes: keyframePrompts.length,
+          characters: updatedProject.imageDesigner.characterPrompts.length,
+          scenes: updatedProject.imageDesigner.scenePrompts.length,
+          keyframes: updatedProject.imageDesigner.keyframePrompts.length,
         })
         break
       }

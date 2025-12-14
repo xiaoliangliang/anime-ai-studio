@@ -7,7 +7,23 @@ import type { ProjectStage, ChatMessage, Message } from '@/types'
 import { sendChatMessage, type ChatResponse } from '@/services'
 import { useProject } from '@/contexts/ProjectContext'
 import { TEXT_MODELS, DEFAULT_TEXT_MODEL, TXT2IMG_MODELS, IMG2IMG_MODELS, DEFAULT_TXT2IMG_MODEL, DEFAULT_IMG2IMG_MODEL } from '@/config'
-import { generateNextImage, getArtistStats, extractPromptsFromImageDesigner, type GenerationProgress, type GenerationPhase, type GenerateNextResult } from '@/services/artistService'
+import { 
+  generateNextImage, 
+  getArtistStats, 
+  extractPromptsFromImageDesigner, 
+  generateAllReferences,
+  generateAllKeyframes,
+  type GenerationProgress, 
+  type GenerationPhase, 
+  type GenerateNextResult,
+  type BatchGenerationProgress,
+  type BatchGenerationResult,
+} from '@/services/artistService'
+import {
+  generateAllVideos,
+  getDirectorStats,
+  type VideoGenerationProgress,
+} from '@/services/directorService'
 import './ChatPanel.css'
 
 interface ChatPanelProps {
@@ -37,6 +53,34 @@ const AUDIENCE_OPTIONS = [
   { value: '通用', label: '👥 通用' },
 ];
 
+// 导演阶段视频参数配置
+const VIDEO_DURATION_OPTIONS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const VIDEO_RESOLUTION_OPTIONS = [
+  { value: '480p', label: '480p 标清' },
+  { value: '720p', label: '720p 高清' },
+  // Lite版本不支持1080p
+];
+const VIDEO_ASPECT_RATIO_OPTIONS = [
+  { value: '16:9', label: '▭ 16:9 横屏', shape: '▭' },
+  { value: '4:3', label: '▭ 4:3 标准', shape: '▭' },
+  { value: '1:1', label: '□ 1:1 方形', shape: '□' },
+  { value: '3:4', label: '▯ 3:4 竖屏', shape: '▯' },
+  { value: '9:16', label: '▯ 9:16 手机', shape: '▯' },
+  { value: '21:9', label: '━ 21:9 宽屏', shape: '━' },
+];
+
+// 美工阶段图片宽高比配置
+const IMAGE_ASPECT_RATIO_OPTIONS = [
+  { value: '16:9', label: '16:9 横屏', shape: '▭', width: 2560, height: 1440 },
+  { value: '4:3', label: '4:3 标准', shape: '▭', width: 2304, height: 1728 },
+  { value: '3:2', label: '3:2 摄影', shape: '▭', width: 2496, height: 1664 },
+  { value: '1:1', label: '1:1 方形', shape: '□', width: 2048, height: 2048 },
+  { value: '2:3', label: '2:3 竖版', shape: '▯', width: 1664, height: 2496 },
+  { value: '3:4', label: '3:4 竖屏', shape: '▯', width: 1728, height: 2304 },
+  { value: '9:16', label: '9:16 手机', shape: '▯', width: 1440, height: 2560 },
+  { value: '21:9', label: '21:9 宽屏', shape: '━', width: 3024, height: 1296 },
+];
+
 // 阶段配置
 const STAGE_CONFIG: Record<ProjectStage, { name: string; icon: string; greeting: string }> = {
   screenwriter: {
@@ -57,7 +101,7 @@ const STAGE_CONFIG: Record<ProjectStage, { name: string; icon: string; greeting:
   artist: {
     name: 'AI美工助手',
     icon: '🖼️',
-    greeting: '你好！我是AI美工助手，帮你生成角色、场景和关键帧图片。点击下方按钮开始一张一张生成，每张都可以查看效果后再继续。',
+    greeting: '你好！我是AI美工助手，帮你批量生成角色、场景和关键帧图片。\n\n第一步：点击「批量生成角色和场景图」并行生成所有参考图\n第二步：角色和场景图完成后，点击「批量生成关键帧」并行生成所有关键帧',
   },
   director: {
     name: 'AI导演助手',
@@ -92,6 +136,17 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   const [selectedTxt2ImgModel, setSelectedTxt2ImgModel] = useState(DEFAULT_TXT2IMG_MODEL)
   const [selectedImg2ImgModel, setSelectedImg2ImgModel] = useState(DEFAULT_IMG2IMG_MODEL)
   const [showImageModelPicker, setShowImageModelPicker] = useState(false)
+  
+  // 导演阶段状态 - 视频生成参数
+  const [videoDuration, setVideoDuration] = useState(5)
+  const [videoResolution, setVideoResolution] = useState<'480p' | '720p'>('480p')
+  const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9'>('16:9')
+  const [isGeneratingVideos, setIsGeneratingVideos] = useState(false)
+  const [videoProgress, setVideoProgress] = useState<VideoGenerationProgress | null>(null)
+  const videoAbortRef = useRef<AbortController | null>(null)
+
+  // 记录是否已初始化（按阶段和项目ID）
+  const [selectedImageAspectRatio, setSelectedImageAspectRatio] = useState('16:9')
 
   // 记录是否已初始化（按阶段和项目ID）
   const initializedKeyRef = useRef<string | null>(null)
@@ -327,13 +382,15 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
     sendMessage(prompt)
   }, [selectedGenre, selectedEpisodes, selectedAudience, sendMessage])
 
-  // ===== 美工阶段：手动模式生成单张图片 =====
+  // ===== 美工阶段：批量生成图片 =====
   const [lastGenerateResult, setLastGenerateResult] = useState<GenerateNextResult | null>(null)
+  const [batchProgress, setBatchProgress] = useState<BatchGenerationProgress | null>(null)
+  const [batchResult, setBatchResult] = useState<BatchGenerationResult | null>(null)
   
-  const handleGenerateSingleImage = useCallback(async () => {
+  // 批量生成角色和场景图
+  const handleGenerateReferences = useCallback(async () => {
     if (isGeneratingImages) return
     
-    // 检查是否有图像设计数据
     if (!currentProject?.imageDesigner) {
       setError('请先完成图像设计阶段')
       return
@@ -341,73 +398,130 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
     
     setIsGeneratingImages(true)
     setError(null)
+    setBatchResult(null)
+    
+    // 添加开始消息
+    setMessages(prev => [...prev, {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: '🚀 开始批量生成角色和场景参考图，请稍候...',
+      timestamp: new Date().toISOString(),
+    }])
+    
+    // 获取选中的宽高比对应的宽高
+    const aspectRatioOption = IMAGE_ASPECT_RATIO_OPTIONS.find(opt => opt.value === selectedImageAspectRatio) || IMAGE_ASPECT_RATIO_OPTIONS[0]
     
     try {
-      // 生成单张图片
-      const result = await generateNextImage(projectId, {
-        txt2imgModel: selectedTxt2ImgModel,
-        img2imgModel: selectedImg2ImgModel,
+      const result = await generateAllReferences(projectId, {
+        concurrency: 5,
+        width: aspectRatioOption.width,
+        height: aspectRatioOption.height,
+        onProgress: (progress) => {
+          setBatchProgress(progress)
+          setGenerationProgress({
+            phase: progress.phase,
+            current: progress.completed,
+            total: progress.total,
+            currentItem: progress.currentName,
+          })
+        },
       })
-      setLastGenerateResult(result)
       
-      // 更新进度信息
-      setGenerationProgress({
-        phase: result.phase,
-        current: result.currentIndex,
-        total: result.totalInPhase,
-        currentItem: result.image?.name,
-      })
-      onArtistProgress?.({
-        phase: result.phase,
-        current: result.currentIndex,
-        total: result.totalInPhase,
-        currentItem: result.image?.name,
-      })
+      setBatchResult(result)
       
       // 添加结果消息
-      const phaseNames: Record<GenerationPhase, string> = {
-        idle: '',
-        characters: '👤 角色图',
-        scenes: '🏙️ 场景图',
-        keyframes: '🎬 关键帧',
-        completed: '✅ 完成',
-        error: '❌ 错误',
-      }
+      const successMsg = result.success 
+        ? `✅ 角色和场景图生成完成！\n成功: ${result.successCount} 张`
+        : `⚠️ 角色和场景图生成完成\n成功: ${result.successCount} 张，失败: ${result.failCount} 张`
       
-      if (result.success && result.image) {
-        const imageName = result.image.name || result.image.id
-        setMessages(prev => [...prev, {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: `${phaseNames[result.phase]} 生成成功：${imageName}\n进度: ${result.currentIndex}/${result.totalInPhase}`,
-          timestamp: new Date().toISOString(),
-        }])
-      } else if (result.isAllDone) {
-        setMessages(prev => [...prev, {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: '🎉 所有图片已生成完成！',
-          timestamp: new Date().toISOString(),
-        }])
-      } else if (result.error) {
-        setMessages(prev => [...prev, {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: `⚠️ 生成失败: ${result.error}`,
-          timestamp: new Date().toISOString(),
-        }])
-      }
+      setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: successMsg,
+        timestamp: new Date().toISOString(),
+      }])
       
-      // 重新加载项目以更新画布
       await loadProject(projectId)
       
     } catch (err) {
-      console.error('图片生成失败:', err)
+      console.error('批量生成失败:', err)
       setError(err instanceof Error ? err.message : '生成失败')
     } finally {
       setIsGeneratingImages(false)
+      setBatchProgress(null)
     }
-  }, [projectId, currentProject, isGeneratingImages, onArtistProgress, loadProject, selectedTxt2ImgModel, selectedImg2ImgModel])
+  }, [projectId, currentProject, isGeneratingImages, loadProject, selectedImageAspectRatio])
+  
+  // 批量生成关键帧图片
+  const handleGenerateKeyframes = useCallback(async () => {
+    if (isGeneratingImages) return
+    
+    if (!currentProject?.imageDesigner) {
+      setError('请先完成图像设计阶段')
+      return
+    }
+    
+    if (!currentProject?.artist?.characterImages?.length || !currentProject?.artist?.sceneImages?.length) {
+      setError('请先生成角色和场景参考图')
+      return
+    }
+    
+    setIsGeneratingImages(true)
+    setError(null)
+    setBatchResult(null)
+    
+    // 添加开始消息
+    setMessages(prev => [...prev, {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: '🚀 开始批量生成关键帧图片，请稍候...',
+      timestamp: new Date().toISOString(),
+    }])
+    
+    // 获取选中的宽高比对应的宽高
+    const aspectRatioOption = IMAGE_ASPECT_RATIO_OPTIONS.find(opt => opt.value === selectedImageAspectRatio) || IMAGE_ASPECT_RATIO_OPTIONS[0]
+    
+    try {
+      const result = await generateAllKeyframes(projectId, {
+        concurrency: 5,
+        width: aspectRatioOption.width,
+        height: aspectRatioOption.height,
+        onProgress: (progress) => {
+          setBatchProgress(progress)
+          setGenerationProgress({
+            phase: progress.phase,
+            current: progress.completed,
+            total: progress.total,
+            currentItem: progress.currentName,
+          })
+        },
+      })
+      
+      setBatchResult(result)
+      setLastGenerateResult({ success: true, phase: 'completed', currentIndex: 0, totalInPhase: 0, isAllDone: true })
+      
+      // 添加结果消息
+      const successMsg = result.success 
+        ? `🎉 关键帧图片生成完成！\n成功: ${result.successCount} 张\n\n所有图片已生成完毕！`
+        : `⚠️ 关键帧图片生成完成\n成功: ${result.successCount} 张，失败: ${result.failCount} 张`
+      
+      setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: successMsg,
+        timestamp: new Date().toISOString(),
+      }])
+      
+      await loadProject(projectId)
+      
+    } catch (err) {
+      console.error('批量生成关键帧失败:', err)
+      setError(err instanceof Error ? err.message : '生成失败')
+    } finally {
+      setIsGeneratingImages(false)
+      setBatchProgress(null)
+    }
+  }, [projectId, currentProject, isGeneratingImages, loadProject, selectedImageAspectRatio])
 
   // 获取美工阶段统计信息
   // 1. 待生成总数从 imageDesigner 获取
@@ -425,8 +539,113 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
     completedCharacters: artistCompletedStats?.completedCharacters || 0,
     completedScenes: artistCompletedStats?.completedScenes || 0,
     completedKeyframes: artistCompletedStats?.completedKeyframes || 0,
+    failedCharacters: artistCompletedStats?.failedCharacters || 0,
+    failedScenes: artistCompletedStats?.failedScenes || 0,
+    failedKeyframes: artistCompletedStats?.failedKeyframes || 0,
     hasErrors: artistCompletedStats?.hasErrors || false,
   } : null
+  
+  // 计算失败图片总数
+  const totalFailedImages = artistStats 
+    ? (artistStats.failedCharacters + artistStats.failedScenes + artistStats.failedKeyframes)
+    : 0
+
+  // 获取导演阶段统计信息
+  const directorStats = stage === 'director' && currentProject 
+    ? getDirectorStats(currentProject)
+    : null
+
+  // 批量生成视频
+  const handleGenerateAllVideos = useCallback(async () => {
+    // 若正在生成，则再次点击视为取消
+    if (isGeneratingVideos) {
+      videoAbortRef.current?.abort()
+      setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: '⏹️ 已取消批量生成',
+        timestamp: new Date().toISOString(),
+      }])
+      return
+    }
+
+    if (!currentProject) return
+    
+    // 兼容两种分镜数据格式：
+    // 1. 多集格式: { episodes: [{ shots }] }
+    // 2. 单集格式: { shots: [...] }
+    const storyboard = currentProject.storyboard as {
+      episodes?: Array<{ shots?: unknown[] }>;
+      shots?: unknown[];
+    } | undefined;
+    
+    const hasEpisodes = storyboard?.episodes && storyboard.episodes.length > 0;
+    const hasDirectShots = storyboard?.shots && storyboard.shots.length > 0;
+    
+    if (!storyboard || (!hasEpisodes && !hasDirectShots)) {
+      setError('请先完成分镜阶段')
+      return
+    }
+    
+    if (!currentProject.artist?.keyframeImages?.length) {
+      setError('请先在美工阶段生成关键帧图片')
+      return
+    }
+    
+    setIsGeneratingVideos(true)
+    setError(null)
+
+    // 创建 AbortController，用于取消
+    const controller = new AbortController()
+    videoAbortRef.current = controller
+    
+    // 添加开始消息
+    setMessages(prev => [...prev, {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: `🎬 开始批量生成视频...\n分辨率: ${videoResolution}\n宽高比: ${videoAspectRatio}`,
+      timestamp: new Date().toISOString(),
+    }])
+    
+    try {
+      const result = await generateAllVideos(projectId, {
+        resolution: videoResolution,
+        ratio: videoAspectRatio,
+        onProgress: (progress) => {
+          setVideoProgress(progress)
+        },
+        onVideoGenerated: (video) => {
+          console.log('视频生成完成:', video.shotNumber, video.status)
+        },
+        abortSignal: controller.signal,
+      })
+      
+      // 添加结果消息
+      const completedCount = result.videos.filter(v => v.status === 'completed').length
+      const failedCount = result.videos.filter(v => v.status === 'failed').length
+      
+      const successMsg = result.success 
+        ? `🎉 视频生成完成！\n成功: ${completedCount} 个视频片段`
+        : `⚠️ 视频生成完成\n成功: ${completedCount} 个，失败: ${failedCount} 个\n${result.errors.slice(0, 3).join('\n')}`
+      
+      setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: successMsg,
+        timestamp: new Date().toISOString(),
+      }])
+      
+      await loadProject(projectId)
+      
+    } catch (err) {
+      console.error('批量生成视频失败:', err)
+      setError(err instanceof Error ? err.message : '生成失败')
+    } finally {
+      setIsGeneratingVideos(false)
+      setVideoProgress(null)
+      videoAbortRef.current = null
+    }
+  }, [projectId, currentProject, isGeneratingVideos, videoResolution, videoAspectRatio, loadProject])
 
   // 自动触发初始消息发送（从首页进入时）- 使用 sessionStorage 防止重复触发
   useEffect(() => {
@@ -634,6 +853,117 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
         </div>
       )}
 
+      {/* 导演阶段控制面板 - 视频生成参数 */}
+      {stage === 'director' && (
+        <div className="director-controls">
+          {/* 统计信息 */}
+          {directorStats && directorStats.totalShots > 0 && (
+            <div className="director-stats">
+              <div className="stat-row">
+                <span>🎬 总镜头数:</span>
+                <span>{directorStats.totalShots}</span>
+              </div>
+              <div className="stat-row">
+                <span>✅ 已完成:</span>
+                <span>
+                  {directorStats.completedVideos}
+                  {directorStats.failedVideos > 0 && <span style={{color: 'red', marginLeft: '4px'}}>(失败{directorStats.failedVideos})</span>}
+                </span>
+              </div>
+              <div className="stat-row">
+                <span>⏳ 待生成:</span>
+                <span>{directorStats.pendingVideos}</span>
+              </div>
+              {directorStats.progress > 0 && (
+                <div className="progress-bar">
+                  <div className="progress-fill" style={{ width: `${directorStats.progress}%` }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 视频生成进度 */}
+          {isGeneratingVideos && videoProgress && (
+            <div className="generation-progress">
+              <div className="progress-header">
+                <span className="progress-phase">
+                  ⟳ 正在生成视频...
+                </span>
+              </div>
+              <div className="progress-detail">
+                进度: {videoProgress.current}/{videoProgress.total}
+                {videoProgress.currentShot && ` - ${videoProgress.currentShot}`}
+              </div>
+              <div className="progress-bar">
+                <div 
+                  className="progress-fill" 
+                  style={{ width: `${(videoProgress.current / videoProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="director-params">
+            <div className="param-row">
+              <label>📺 分辨率</label>
+              <select 
+                value={videoResolution}
+                onChange={(e) => setVideoResolution(e.target.value as '480p' | '720p')}
+                className="param-select"
+                disabled={isGeneratingVideos}
+              >
+                {VIDEO_RESOLUTION_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="param-row">
+              <label>📏 宽高比</label>
+              <select 
+                value={videoAspectRatio}
+                onChange={(e) => setVideoAspectRatio(e.target.value as '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9')}
+                className="param-select"
+                disabled={isGeneratingVideos}
+              >
+                {VIDEO_ASPECT_RATIO_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.shape} {opt.value}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          
+          {/* 批量生成按钮 */}
+          <div className="director-actions">
+            {directorStats && directorStats.completedVideos === directorStats.totalShots && directorStats.totalShots > 0 ? (
+              <div className="all-done-message">
+                🎉 所有视频已生成完成！
+              </div>
+            ) : (
+              <button 
+                className={`start-generation-btn ${isGeneratingVideos ? 'generating' : ''}`}
+                onClick={handleGenerateAllVideos}
+                disabled={!isGeneratingVideos && !currentProject?.artist?.keyframeImages?.length}
+              >
+                {isGeneratingVideos
+                  ? `⏹️ 中止生成 ${videoProgress?.current || 0}/${videoProgress?.total || 0}` 
+                  : directorStats && directorStats.completedVideos > 0
+                    ? `🔄 继续生成视频 (${directorStats.completedVideos}/${directorStats.totalShots})`
+                    : `🎬 批量生成视频 (${directorStats?.totalShots || 0}个镜头)`
+                }
+              </button>
+            )}
+          </div>
+          
+          {/* 提示信息 */}
+          {!currentProject?.artist?.keyframeImages?.length && (
+            <div className="director-hint warning">
+              ⚠️ 请先在美工阶段生成关键帧图片
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 美工阶段控制面板 - 手动生成模式 */}
       {stage === 'artist' && (
         <div className="artist-controls">
@@ -642,21 +972,55 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
             <div className="artist-stats">
               <div className="stat-row">
                 <span>👤 角色图:</span>
-                <span>{artistStats.completedCharacters}/{artistStats.totalCharacters}</span>
+                <span>
+                  {artistStats.completedCharacters}/{artistStats.totalCharacters}
+                  {artistStats.failedCharacters > 0 && <span style={{color: 'red', marginLeft: '4px'}}>(失败{artistStats.failedCharacters})</span>}
+                </span>
               </div>
               <div className="stat-row">
                 <span>🏙️ 场景图:</span>
-                <span>{artistStats.completedScenes}/{artistStats.totalScenes}</span>
+                <span>
+                  {artistStats.completedScenes}/{artistStats.totalScenes}
+                  {artistStats.failedScenes > 0 && <span style={{color: 'red', marginLeft: '4px'}}>(失败{artistStats.failedScenes})</span>}
+                </span>
               </div>
               <div className="stat-row">
                 <span>🎬 关键帧:</span>
-                <span>{artistStats.completedKeyframes}/{artistStats.totalKeyframes}</span>
+                <span>
+                  {artistStats.completedKeyframes}/{artistStats.totalKeyframes}
+                  {artistStats.failedKeyframes > 0 && <span style={{color: 'red', marginLeft: '4px'}}>(失败{artistStats.failedKeyframes})</span>}
+                </span>
               </div>
+              {totalFailedImages > 0 && (
+                <div className="stat-row" style={{marginTop: '8px', color: '#ff9800'}}>
+                  ⚠️ 有 {totalFailedImages} 张图片生成失败，点击「继续生成」可自动重试
+                </div>
+              )}
             </div>
           )}
           
           {/* 当前生成状态 */}
-          {isGeneratingImages && (
+          {isGeneratingImages && batchProgress && (
+            <div className="generation-progress">
+              <div className="progress-header">
+                <span className="progress-phase">
+                  ⟳ 正在生成{batchProgress.phase === 'characters' ? '角色图' : batchProgress.phase === 'scenes' ? '场景图' : '关键帧'}...
+                </span>
+              </div>
+              <div className="progress-detail">
+                进度: {batchProgress.completed}/{batchProgress.total}
+                {batchProgress.currentName && ` - ${batchProgress.currentName}`}
+              </div>
+              <div className="progress-bar">
+                <div 
+                  className="progress-fill" 
+                  style={{ width: `${(batchProgress.completed / batchProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+          
+          {isGeneratingImages && !batchProgress && (
             <div className="generation-progress">
               <div className="progress-header">
                 <span className="progress-phase">⟳ 正在生成图片...</span>
@@ -664,52 +1028,25 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
             </div>
           )}
           
-          {/* 最后一次生成结果 */}
-          {lastGenerateResult && !isGeneratingImages && lastGenerateResult.image && (
-            <div className="last-generate-result">
-              <div className="result-header">
-                {lastGenerateResult.success ? '✅' : '❌'} 最后生成: {lastGenerateResult.image.name}
+          {/* 图片宽高比选择器 */}
+          <div className="artist-params">
+            <div className="param-row">
+              <label>🖼️ 宽高比</label>
+              <div className="aspect-ratio-selector">
+                <span className="aspect-shape-preview" title={`形状预览: ${IMAGE_ASPECT_RATIO_OPTIONS.find(opt => opt.value === selectedImageAspectRatio)?.shape || '□'}`}>
+                  {IMAGE_ASPECT_RATIO_OPTIONS.find(opt => opt.value === selectedImageAspectRatio)?.shape || '□'}
+                </span>
+                <select 
+                  value={selectedImageAspectRatio}
+                  onChange={(e) => setSelectedImageAspectRatio(e.target.value)}
+                  className="param-select"
+                  disabled={isGeneratingImages}
+                >
+                  {IMAGE_ASPECT_RATIO_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.shape} {opt.label}</option>
+                  ))}
+                </select>
               </div>
-              {lastGenerateResult.image.imageUrl && (
-                <div className="result-preview">
-                  <img 
-                    src={lastGenerateResult.image.imageUrl} 
-                    alt={lastGenerateResult.image.name || '生成的图片'}
-                    style={{ maxWidth: '100%', maxHeight: '150px', borderRadius: '8px' }}
-                  />
-                </div>
-              )}
-              {lastGenerateResult.error && (
-                <div className="result-error">错误: {lastGenerateResult.error}</div>
-              )}
-            </div>
-          )}
-          
-          {/* 模型选择 */}
-          <div className="image-model-selector">
-            <div className="model-row">
-              <label>🎨 文生图模型:</label>
-              <select 
-                value={selectedTxt2ImgModel} 
-                onChange={e => setSelectedTxt2ImgModel(e.target.value)}
-                disabled={isGeneratingImages}
-              >
-                {TXT2IMG_MODELS.map(m => (
-                  <option key={m.id} value={m.id}>{m.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="model-row">
-              <label>🖼️ 图生图模型:</label>
-              <select 
-                value={selectedImg2ImgModel} 
-                onChange={e => setSelectedImg2ImgModel(e.target.value)}
-                disabled={isGeneratingImages}
-              >
-                {IMG2IMG_MODELS.map(m => (
-                  <option key={m.id} value={m.id}>{m.name}</option>
-                ))}
-              </select>
             </div>
           </div>
           
@@ -720,18 +1057,40 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
                 🎉 所有图片已生成完成！
               </div>
             ) : (
-              <button 
-                className="start-generation-btn"
-                onClick={handleGenerateSingleImage}
-                disabled={!currentProject?.imageDesigner || isGeneratingImages}
-              >
-                {isGeneratingImages 
-                  ? '⟳ 生成中...' 
-                  : lastGenerateResult 
-                    ? '➡️ 继续生成下一张' 
-                    : '🎨 生成第一张图片'
-                }
-              </button>
+              <>
+                {/* 第一步：生成角色和场景图 */}
+                <button 
+                  className="start-generation-btn"
+                  onClick={handleGenerateReferences}
+                  disabled={!currentProject?.imageDesigner || isGeneratingImages}
+                >
+                  {isGeneratingImages && (batchProgress?.phase === 'characters' || batchProgress?.phase === 'scenes')
+                    ? `⟳ 生成中... ${batchProgress?.completed || 0}/${batchProgress?.total || 0}` 
+                    : artistStats && (artistStats.completedCharacters > 0 || artistStats.completedScenes > 0)
+                      ? `🔄 重新生成角色和场景图 (${artistStats.completedCharacters + artistStats.completedScenes}/${artistStats.totalCharacters + artistStats.totalScenes})`
+                      : `🎨 批量生成角色和场景图 (${artistStats?.totalCharacters || 0}+${artistStats?.totalScenes || 0})`
+                  }
+                </button>
+                
+                {/* 第二步：生成关键帧（需要角色和场景图完成后才能点击） */}
+                <button 
+                  className="start-generation-btn keyframe-btn"
+                  onClick={handleGenerateKeyframes}
+                  disabled={
+                    !currentProject?.imageDesigner || 
+                    isGeneratingImages ||
+                    !currentProject?.artist?.characterImages?.length ||
+                    !currentProject?.artist?.sceneImages?.length
+                  }
+                >
+                  {isGeneratingImages && batchProgress?.phase === 'keyframes'
+                    ? `⟳ 生成中... ${batchProgress?.completed || 0}/${batchProgress?.total || 0}` 
+                    : artistStats && artistStats.completedKeyframes > 0
+                      ? `🔄 重新生成关键帧 (${artistStats.completedKeyframes}/${artistStats.totalKeyframes})`
+                      : `🎬 批量生成关键帧 (${artistStats?.totalKeyframes || 0})`
+                  }
+                </button>
+              </>
             )}
           </div>
           
@@ -742,9 +1101,15 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
             </div>
           )}
           
-          {currentProject?.imageDesigner && !lastGenerateResult && !isGeneratingImages && (
+          {currentProject?.imageDesigner && !artistStats?.completedCharacters && !artistStats?.completedScenes && !isGeneratingImages && (
             <div className="artist-hint" style={{ color: '#4caf50' }}>
-              💡 点击上方按钮开始生成第一张图片，生成完成后可查看效果再继续
+              💡 点击「批量生成角色和场景图」开始第一步，系统将并行生成所有参考图
+            </div>
+          )}
+          
+          {(currentProject?.artist?.characterImages?.length ?? 0) > 0 && (currentProject?.artist?.sceneImages?.length ?? 0) > 0 && !artistStats?.completedKeyframes && !isGeneratingImages && (
+            <div className="artist-hint" style={{ color: '#2196f3' }}>
+              💡 角色和场景图已完成，点击「批量生成关键帧」继续生成关键帧图片
             </div>
           )}
         </div>

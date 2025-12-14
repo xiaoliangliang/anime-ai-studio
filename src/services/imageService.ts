@@ -26,7 +26,7 @@ export interface GenerateImageResult {
 }
 
 /**
- * 文生图
+ * 文生图 - 使用 RunComfy Seedream 4.5 API
  */
 export async function generateImageFromText(
   projectId: string,
@@ -36,27 +36,22 @@ export async function generateImageFromText(
     prompt,
     width = 1024,
     height = 1024,
-    seed,
-    model = 'flux',
-    enhance = true,
   } = options;
 
-  try {
-    // 构建请求 URL
-    const params = new URLSearchParams({
-      prompt,
-      width: String(width),
-      height: String(height),
-      model,
-      enhance: String(enhance),
-      nologo: 'true',
-    });
-    
-    if (seed) {
-      params.set('seed', String(seed));
-    }
+  // 根据宽高选择合适的分辨率
+  const resolution = getRunComfyResolution(width, height);
 
-    const response = await fetch(`${API_BASE}/api/txt2img?${params.toString()}`);
+  try {
+    const response = await fetch(`${API_BASE}/api/runcomfy/txt2img`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt,
+        resolution,
+      }),
+    });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -106,7 +101,7 @@ export async function generateImageFromText(
 }
 
 /**
- * 图生图
+ * 图生图 - 使用 RunComfy Seedream 4.5 Edit API
  */
 export async function generateImageFromImage(
   projectId: string,
@@ -117,27 +112,23 @@ export async function generateImageFromImage(
     referenceImageUrl,
     width = 1024,
     height = 1024,
-    seed,
-    model = 'kontext',
-    enhance = false,
   } = options;
 
-  try {
-    const params = new URLSearchParams({
-      prompt,
-      imageUrl: referenceImageUrl,
-      width: String(width),
-      height: String(height),
-      model,
-      enhance: String(enhance),
-      nologo: 'true',
-    });
-    
-    if (seed) {
-      params.set('seed', String(seed));
-    }
+  // 根据宽高选择合适的分辨率
+  const resolution = getRunComfyResolution(width, height);
 
-    const response = await fetch(`${API_BASE}/api/img2img?${params.toString()}`);
+  try {
+    const response = await fetch(`${API_BASE}/api/runcomfy/img2img`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt,
+        images: [referenceImageUrl],
+        resolution,
+      }),
+    });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -183,33 +174,161 @@ export async function generateImageFromImage(
   }
 }
 
+/** 批量生成项的进度回调 */
+export interface BatchProgressCallback {
+  (progress: {
+    completed: number;
+    total: number;
+    currentId: string;
+    success: boolean;
+    error?: string;
+  }): void;
+}
+
 /**
- * 批量生成图片
+ * 批量并行生成图片（文生图）
+ * 支持并发控制和进度回调
  */
-export async function batchGenerateImages(
+export async function batchGenerateImagesFromText(
   projectId: string,
-  prompts: Array<{ id: string; prompt: string; referenceUrl?: string }>
+  prompts: Array<{ id: string; prompt: string; name?: string }>,
+  options: {
+    concurrency?: number;
+    width?: number;
+    height?: number;
+    onProgress?: BatchProgressCallback;
+  } = {}
 ): Promise<Map<string, GenerateImageResult>> {
+  const { concurrency = 5, width, height, onProgress } = options;
   const results = new Map<string, GenerateImageResult>();
+  let completed = 0;
+  const total = prompts.length;
 
-  // 串行生成（MVP 不做并行）
-  for (const item of prompts) {
-    const result = item.referenceUrl
-      ? await generateImageFromImage(projectId, {
+  // 分批并行生成
+  for (let i = 0; i < prompts.length; i += concurrency) {
+    const batch = prompts.slice(i, i + concurrency);
+    
+    const batchPromises = batch.map(async (item) => {
+      try {
+        const result = await generateImageFromText(projectId, {
           prompt: item.prompt,
-          referenceImageUrl: item.referenceUrl,
-        })
-      : await generateImageFromText(projectId, {
-          prompt: item.prompt,
+          width,
+          height,
         });
+        results.set(item.id, result);
+        completed++;
+        onProgress?.({
+          completed,
+          total,
+          currentId: item.id,
+          success: result.success,
+          error: result.error,
+        });
+        return result;
+      } catch (error) {
+        const errorResult: GenerateImageResult = {
+          success: false,
+          error: error instanceof Error ? error.message : '生成失败',
+        };
+        results.set(item.id, errorResult);
+        completed++;
+        onProgress?.({
+          completed,
+          total,
+          currentId: item.id,
+          success: false,
+          error: errorResult.error,
+        });
+        return errorResult;
+      }
+    });
 
-    results.set(item.id, result);
-
-    // 简单的延迟，避免过快请求
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await Promise.all(batchPromises);
   }
 
   return results;
+}
+
+/**
+ * 批量并行生成图片（图生图）
+ * 支持并发控制和进度回调
+ */
+export async function batchGenerateImagesFromImage(
+  projectId: string,
+  prompts: Array<{ id: string; prompt: string; referenceUrl: string; name?: string }>,
+  options: {
+    concurrency?: number;
+    width?: number;
+    height?: number;
+    onProgress?: BatchProgressCallback;
+  } = {}
+): Promise<Map<string, GenerateImageResult>> {
+  const { concurrency = 5, width, height, onProgress } = options;
+  const results = new Map<string, GenerateImageResult>();
+  let completed = 0;
+  const total = prompts.length;
+
+  // 分批并行生成
+  for (let i = 0; i < prompts.length; i += concurrency) {
+    const batch = prompts.slice(i, i + concurrency);
+    
+    const batchPromises = batch.map(async (item) => {
+      try {
+        const result = await generateImageFromImage(projectId, {
+          prompt: item.prompt,
+          referenceImageUrl: item.referenceUrl,
+          width,
+          height,
+        });
+        results.set(item.id, result);
+        completed++;
+        onProgress?.({
+          completed,
+          total,
+          currentId: item.id,
+          success: result.success,
+          error: result.error,
+        });
+        return result;
+      } catch (error) {
+        const errorResult: GenerateImageResult = {
+          success: false,
+          error: error instanceof Error ? error.message : '生成失败',
+        };
+        results.set(item.id, errorResult);
+        completed++;
+        onProgress?.({
+          completed,
+          total,
+          currentId: item.id,
+          success: false,
+          error: errorResult.error,
+        });
+        return errorResult;
+      }
+    });
+
+    await Promise.all(batchPromises);
+  }
+
+  return results;
+}
+
+/**
+ * 根据宽高获取 RunComfy 支持的分辨率
+ */
+function getRunComfyResolution(width: number, height: number): string {
+  const ratio = width / height;
+  
+  // 根据宽高比选择最接近的分辨率
+  if (ratio > 2.2) return '3024x1296 (21:9)';  // 21:9 超宽屏
+  if (ratio > 1.6) return '2560x1440 (16:9)';  // 16:9 宽屏
+  if (ratio > 1.4) return '2496x1664 (3:2)';   // 3:2
+  if (ratio > 1.2) return '2304x1728 (4:3)';   // 4:3
+  if (ratio > 0.85) return '2048x2048 (1:1)';  // 1:1 方形
+  if (ratio > 0.7) return '1728x2304 (3:4)';   // 3:4 竖屏
+  if (ratio > 0.6) return '1664x2496 (2:3)';   // 2:3
+  return '1440x2560 (9:16)';                    // 9:16 竖屏
 }
 
 /**
