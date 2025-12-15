@@ -7,6 +7,7 @@ import { Tldraw, Editor, useEditor } from 'tldraw'
 import 'tldraw/tldraw.css'
 import type { ProjectStage } from '@/types'
 import { STAGE_AREAS, navigateToStage, addStageBackgrounds, renderStageData, regenerateVideo } from '@/services'
+import { ENABLE_VIDEO_GENERATION, VIDEO_GENERATION_DISABLED_MESSAGE } from '@/config'
 import { extractPromptsFromImageDesigner } from '@/services/artistService'
 import { useProject } from '@/contexts/ProjectContext'
 import './CanvasPanel.css'
@@ -84,6 +85,11 @@ export default function CanvasPanel({ projectId, stage }: CanvasPanelProps) {
         const shape: any = selected[0]
         const meta = shape.meta || {}
         if (meta.action === 'regenVideo' && meta.shotId) {
+          if (!ENABLE_VIDEO_GENERATION) {
+            alert(VIDEO_GENERATION_DISABLED_MESSAGE)
+            return
+          }
+
           if (!currentProject) return
           const res = await regenerateVideo(currentProject.meta.id, meta.shotId)
           if (!res.success) {

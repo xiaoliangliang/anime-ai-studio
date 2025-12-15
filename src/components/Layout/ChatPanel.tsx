@@ -6,7 +6,18 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import type { Project, ProjectStage, ChatMessage, Message } from '@/types'
 import { sendChatMessage, type ChatResponse } from '@/services'
 import { useProject } from '@/contexts/ProjectContext'
-import { TEXT_MODELS, DEFAULT_TEXT_MODEL, TXT2IMG_MODELS, IMG2IMG_MODELS, DEFAULT_TXT2IMG_MODEL, DEFAULT_IMG2IMG_MODEL } from '@/config'
+import {
+  TEXT_MODELS,
+  DEFAULT_TEXT_MODEL,
+  TXT2IMG_MODELS,
+  IMG2IMG_MODELS,
+  DEFAULT_TXT2IMG_MODEL,
+  DEFAULT_IMG2IMG_MODEL,
+  ENABLE_IMAGE_GENERATION,
+  ENABLE_VIDEO_GENERATION,
+  IMAGE_GENERATION_DISABLED_MESSAGE,
+  VIDEO_GENERATION_DISABLED_MESSAGE,
+} from '@/config'
 import { 
   generateNextImage, 
   getArtistStats, 
@@ -559,8 +570,25 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   const [batchProgress, setBatchProgress] = useState<BatchGenerationProgress | null>(null)
   const [batchResult, setBatchResult] = useState<BatchGenerationResult | null>(null)
   
+  const pushAssistantMessage = useCallback((content: string) => {
+    setMessages(prev => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content,
+        timestamp: new Date().toISOString(),
+      },
+    ])
+  }, [])
+
   // 批量生成角色和场景图
   const handleGenerateReferences = useCallback(async () => {
+    if (!ENABLE_IMAGE_GENERATION) {
+      pushAssistantMessage(IMAGE_GENERATION_DISABLED_MESSAGE)
+      return
+    }
+
     if (isGeneratingImages) return
     
     if (!currentProject?.imageDesigner) {
@@ -622,10 +650,15 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
       setIsGeneratingImages(false)
       setBatchProgress(null)
     }
-  }, [projectId, currentProject, isGeneratingImages, loadProject, selectedImageAspectRatio])
+  }, [projectId, currentProject, isGeneratingImages, loadProject, selectedImageAspectRatio, pushAssistantMessage])
   
   // 批量生成关键帧图片
   const handleGenerateKeyframes = useCallback(async () => {
+    if (!ENABLE_IMAGE_GENERATION) {
+      pushAssistantMessage(IMAGE_GENERATION_DISABLED_MESSAGE)
+      return
+    }
+
     if (isGeneratingImages) return
     
     if (!currentProject?.imageDesigner) {
@@ -693,7 +726,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
       setIsGeneratingImages(false)
       setBatchProgress(null)
     }
-  }, [projectId, currentProject, isGeneratingImages, loadProject, selectedImageAspectRatio])
+  }, [projectId, currentProject, isGeneratingImages, loadProject, selectedImageAspectRatio, pushAssistantMessage])
 
   // 获取美工阶段统计信息
   // 1. 待生成总数从 imageDesigner 获取
@@ -738,6 +771,11 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
         content: '⏹️ 已取消批量生成',
         timestamp: new Date().toISOString(),
       }])
+      return
+    }
+
+    if (!ENABLE_VIDEO_GENERATION) {
+      pushAssistantMessage(VIDEO_GENERATION_DISABLED_MESSAGE)
       return
     }
 
@@ -817,7 +855,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
       setVideoProgress(null)
       videoAbortRef.current = null
     }
-  }, [projectId, currentProject, isGeneratingVideos, videoResolution, videoAspectRatio, loadProject])
+  }, [projectId, currentProject, isGeneratingVideos, videoResolution, videoAspectRatio, loadProject, pushAssistantMessage])
 
   // 处理键盘事件
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1031,7 +1069,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
               <button 
                 className={`start-generation-btn ${isGeneratingVideos ? 'generating' : ''}`}
                 onClick={handleGenerateAllVideos}
-                disabled={!isGeneratingVideos && !currentProject?.artist?.keyframeImages?.length}
+                disabled={!isGeneratingVideos && ENABLE_VIDEO_GENERATION && !currentProject?.artist?.keyframeImages?.length}
               >
                 {isGeneratingVideos
                   ? `⏹️ 中止生成 ${videoProgress?.current || 0}/${videoProgress?.total || 0}` 
@@ -1150,7 +1188,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
                 <button 
                   className="start-generation-btn"
                   onClick={handleGenerateReferences}
-                  disabled={!currentProject?.imageDesigner || isGeneratingImages}
+                  disabled={isGeneratingImages || (ENABLE_IMAGE_GENERATION && !currentProject?.imageDesigner)}
                 >
                   {isGeneratingImages && (batchProgress?.phase === 'characters' || batchProgress?.phase === 'scenes')
                     ? `⟳ 生成中... ${batchProgress?.completed || 0}/${batchProgress?.total || 0}` 
@@ -1169,10 +1207,12 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
                       handleGenerateKeyframes()
                     }}
                     disabled={
-                      !currentProject?.imageDesigner || 
                       isGeneratingImages ||
-                      !currentProject?.artist?.characterImages?.length ||
-                      !currentProject?.artist?.sceneImages?.length
+                      (ENABLE_IMAGE_GENERATION && (
+                        !currentProject?.imageDesigner ||
+                        !currentProject?.artist?.characterImages?.length ||
+                        !currentProject?.artist?.sceneImages?.length
+                      ))
                     }
                   >
                     {isGeneratingImages && batchProgress?.phase === 'keyframes'
