@@ -1,0 +1,17 @@
+# https://animeaistudio.com robots.txt
+
+User-agent: *
+Allow: /
+Allow: /en
+Allow: /zh
+
+# 禁止爬取用户项目页面（动态内容）
+Disallow: /project/
+Disallow: /en/project/
+Disallow: /zh/project/
+
+# 禁止爬取 API 端点
+Disallow: /api/
+
+# 站点地图
+Sitemap: https://animeaistudio.com/sitemap.xml
