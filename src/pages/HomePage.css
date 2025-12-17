@@ -497,22 +497,57 @@
 
 /* Modal - Dark */
 .modal-overlay {
-  background: rgba(0,0,0,0.8);
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.8);
   backdrop-filter: blur(4px);
 }
 
 .modal-content {
+  width: min(520px, 92vw);
+  border-radius: 12px;
+  padding: 20px 20px 16px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   color: var(--text-primary);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
 }
 
 .modal-title {
+  margin: 0 0 12px;
   color: var(--text-primary);
+  font-size: 1.1rem;
+  font-weight: 600;
 }
 
 .modal-message {
+  margin: 0;
   color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.warning-text {
+  color: #f59e0b;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.modal-btn {
+  padding: 10px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
 }
 
 .cancel-btn {
@@ -522,9 +557,23 @@
 }
 
 .cancel-btn:hover:not(:disabled) {
-    background: rgba(255,255,255,0.1);
+  background: rgba(255, 255, 255, 0.1);
 }
 
+.confirm-btn {
+  background: #ef4444;
+  border: 1px solid #ef4444;
+  color: #ffffff;
+}
+
+.confirm-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.modal-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 /* 固定模型标签 */
 .model-label-static {
