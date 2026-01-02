@@ -167,7 +167,7 @@ export async function sendChatMessage(
   options: ChatOptions = {}
 ): Promise<ChatResponse> {
   const {
-    model = 'gpt-5-nano',
+    model = 'openai',
     temperature = 1,
     maxRetries = 3,
     maxTokens,
@@ -390,7 +390,7 @@ export async function* streamChatMessage(
   options: ChatOptions = {}
 ): AsyncGenerator<string, ChatResponse, unknown> {
   const {
-    model = 'gpt-5-nano',
+    model = 'openai',
     temperature = 1,
     contextData,
   } = options;
