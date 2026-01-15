@@ -39,6 +39,7 @@
       { "label": "末世求生", "value": "post_apocalyptic" }
     ],
     "episodes": [
+      { "label": "1集", "value": 1 },
       { "label": "5集", "value": 5 },
       { "label": "10集", "value": 10 },
       { "label": "15集", "value": 15 },
@@ -54,7 +55,7 @@
   },
   "hero": {
     "title": "AI漫剧",
-    "highlight_text": "创作坊",
+    "highlight_text": "创作室",
     "description": "全球首款基于无限画布的一站式AI漫剧创作平台",
     "buttons": [
       { "title": "开始创作", "url": "/zh/dashboard" },

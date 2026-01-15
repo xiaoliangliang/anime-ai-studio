@@ -2,7 +2,7 @@
  * 聊天面板组件 - 左侧 AI 对话区
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import type { Project, ProjectStage, ChatMessage, Message } from '@/types'
 import { sendChatMessage, type ChatResponse } from '@/services'
 import { useProject } from '@/contexts/ProjectContext'
@@ -18,23 +18,35 @@ import {
   IMAGE_GENERATION_DISABLED_MESSAGE,
   VIDEO_GENERATION_DISABLED_MESSAGE,
 } from '@/config'
+import { IMAGE_ASPECT_RATIO_OPTIONS } from '@/config/imageAspectRatios'
 import { 
   generateNextImage, 
   getArtistStats, 
   extractPromptsFromImageDesigner, 
   generateAllReferences,
   generateAllKeyframes,
-  type GenerationProgress, 
-  type GenerationPhase, 
+  type GenerationProgress as ArtistGenerationProgress, 
+  type GenerationPhase as ArtistGenerationPhase, 
   type GenerateNextResult,
   type BatchGenerationProgress,
   type BatchGenerationResult,
 } from '@/services/artistService'
 import {
+  createGenerationController,
+  restoreGenerationController,
+  canGenerateKeyframes,
+  type GenerationState,
+  type GenerationProgress,
+  type GenerationPhase,
+  type IGenerationController,
+} from '@/services/generationController'
+import {
   generateAllVideos,
   getDirectorStats,
   type VideoGenerationProgress,
 } from '@/services/directorService'
+import { getDirectorVideoConfig, setDirectorVideoConfig } from '@/services/directorConfig'
+import { exportDirectorVideosAsZip, type DirectorZipExportProgress } from '@/services/directorExportService'
 import { TextShimmer } from '@/components/ui/text-shimmer'
 import './ChatPanel.css'
 
@@ -86,7 +98,7 @@ interface ChatPanelProps {
   onDataGenerated?: (data: unknown) => void // AI 生成数据的回调
   autoStart?: boolean // 从首页进入时自动开始创作
   initialMessage?: string // 首页传来的初始消息
-  onArtistProgress?: (progress: GenerationProgress) => void // 美工阶段进度回调
+  onArtistProgress?: (progress: ArtistGenerationProgress) => void // 美工阶段进度回调
   showKeyframeGuide?: boolean // 是否显示关键帧生成引导
   onKeyframeGuideClick?: () => void // 点击关键帧引导后的回调
 }
@@ -125,17 +137,6 @@ const VIDEO_ASPECT_RATIO_OPTIONS = [
   { value: '21:9', label: '━ 21:9 宽屏', shape: '━' },
 ];
 
-// 美工阶段图片宽高比配置
-const IMAGE_ASPECT_RATIO_OPTIONS = [
-  { value: '16:9', label: '16:9 横屏', shape: '▭', width: 2560, height: 1440 },
-  { value: '4:3', label: '4:3 标准', shape: '▭', width: 2304, height: 1728 },
-  { value: '3:2', label: '3:2 摄影', shape: '▭', width: 2496, height: 1664 },
-  { value: '1:1', label: '1:1 方形', shape: '□', width: 2048, height: 2048 },
-  { value: '2:3', label: '2:3 竖版', shape: '▯', width: 1664, height: 2496 },
-  { value: '3:4', label: '3:4 竖屏', shape: '▯', width: 1728, height: 2304 },
-  { value: '9:16', label: '9:16 手机', shape: '▯', width: 1440, height: 2560 },
-  { value: '21:9', label: '21:9 宽屏', shape: '━', width: 3024, height: 1296 },
-];
 
 // 阶段配置
 const STAGE_CONFIG: Record<ProjectStage, { name: string; icon: string; greeting: string }> = {
@@ -194,16 +195,44 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   const [selectedImg2ImgModel, setSelectedImg2ImgModel] = useState(DEFAULT_IMG2IMG_MODEL)
   const [showImageModelPicker, setShowImageModelPicker] = useState(false)
   
+  // 新版 GenerationController 状态
+  const [generationController, setGenerationController] = useState<IGenerationController | null>(null)
+  const [generationState, setGenerationState] = useState<GenerationState>('idle')
+  
   // 导演阶段状态 - 视频生成参数
   const [videoDuration, setVideoDuration] = useState(5)
-  const [videoResolution, setVideoResolution] = useState<'480p' | '720p'>('480p')
-  const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9'>('16:9')
+  const [videoResolution, setVideoResolution] = useState<'480p' | '720p'>(() => {
+    return getDirectorVideoConfig(projectId).resolution
+  })
+  const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9'>(() => {
+    return getDirectorVideoConfig(projectId).ratio
+  })
   const [isGeneratingVideos, setIsGeneratingVideos] = useState(false)
   const [videoProgress, setVideoProgress] = useState<VideoGenerationProgress | null>(null)
   const videoAbortRef = useRef<AbortController | null>(null)
 
-  // 记录是否已初始化（按阶段和项目ID）
-  const [selectedImageAspectRatio, setSelectedImageAspectRatio] = useState('16:9')
+  // 导演阶段：批量导出 ZIP
+  const [isExportingVideosZip, setIsExportingVideosZip] = useState(false)
+  const [exportZipProgress, setExportZipProgress] = useState<DirectorZipExportProgress | null>(null)
+  const exportAbortRef = useRef<AbortController | null>(null)
+
+  const getAspectRatioStorageKey = useCallback(
+    () => `artistImageAspectRatio:${projectId}`,
+    [projectId]
+  )
+
+  // 美工阶段：图片宽高比（持久化到 localStorage，供画布上的单张重新生成复用）
+  const [selectedImageAspectRatio, setSelectedImageAspectRatio] = useState(() => {
+    try {
+      return localStorage.getItem(`artistImageAspectRatio:${projectId}`) || '16:9'
+    } catch {
+      return '16:9'
+    }
+  })
+  const selectedAspectOption = useMemo(
+    () => IMAGE_ASPECT_RATIO_OPTIONS.find(opt => opt.value === selectedImageAspectRatio) || IMAGE_ASPECT_RATIO_OPTIONS[0],
+    [selectedImageAspectRatio]
+  )
 
   // 记录是否已初始化（按阶段和项目ID）
   const initializedKeyRef = useRef<string | null>(null)
@@ -211,6 +240,14 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   const autoStartSentRef = useRef<string | null>(null)
   // 发送请求锁（防止同一时刻重复请求）
   const sendLockRef = useRef(false)
+
+  // 导演阶段：从 localStorage 同步（项目切换/重新进入导演阶段时）
+  useEffect(() => {
+    if (stage !== 'director') return
+    const cfg = getDirectorVideoConfig(projectId)
+    setVideoResolution(cfg.resolution)
+    setVideoAspectRatio(cfg.ratio)
+  }, [projectId, stage])
   
   // 初始化消息 - 仅在阶段切换或首次加载时执行
   useEffect(() => {
@@ -326,6 +363,65 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
     sendMessage(prompt)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoStart, currentProject?.meta.id])
+
+  // 美工阶段：初始化 GenerationController 并恢复状态
+  // 注意：不要依赖 currentProject.imageDesigner 的对象引用（loadProject 会导致对象变更），否则会重复初始化控制器
+  useEffect(() => {
+    const hasImageDesigner = !!currentProject?.imageDesigner
+    if (stage !== 'artist' || !hasImageDesigner) return
+    
+    const initController = async () => {
+      try {
+        const restored = await restoreGenerationController(projectId, {
+          width: selectedAspectOption.width,
+          height: selectedAspectOption.height,
+          onProgress: (progress) => {
+            setGenerationProgress(progress)
+            onArtistProgress?.({
+              phase: progress.phase as ArtistGenerationPhase,
+              current: progress.current,
+              total: progress.total,
+              currentItem: progress.currentItem,
+            })
+          },
+          onStateChange: (newState) => {
+            setGenerationState(newState)
+            setIsGeneratingImages(newState === 'running' || newState === 'pausing')
+          },
+          onImageGenerated: async (image, phase) => {
+            // 重新加载项目以更新画布
+            await loadProject(projectId)
+          },
+          onComplete: async (result) => {
+            setIsGeneratingImages(false)
+            await loadProject(projectId)
+            
+            const successMsg = result.success 
+              ? `🎉 所有图片生成完成！\n成功: ${result.characterImages.length + result.sceneImages.length + result.keyframeImages.length} 张`
+              : `⚠️ 图片生成完成\n失败: ${result.errors.length} 张`
+            
+            setMessages(prev => [...prev, {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: successMsg,
+              timestamp: new Date().toISOString(),
+            }])
+          },
+          onError: (error) => {
+            setError(error)
+          },
+        })
+        
+        setGenerationController(restored.controller)
+        setGenerationState(restored.suggestedState)
+        setGenerationProgress(restored.progress)
+      } catch (err) {
+        console.error('Failed to initialize GenerationController:', err)
+      }
+    }
+    
+    initController()
+  }, [stage, projectId, !!currentProject?.imageDesigner, loadProject, onArtistProgress, selectedAspectOption.width, selectedAspectOption.height])
 
   // 自动滚动到底部
   useEffect(() => {
@@ -618,12 +714,6 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
         height: aspectRatioOption.height,
         onProgress: (progress) => {
           setBatchProgress(progress)
-          setGenerationProgress({
-            phase: progress.phase,
-            current: progress.completed,
-            total: progress.total,
-            currentItem: progress.currentName,
-          })
         },
       })
       
@@ -643,6 +733,48 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
       
       await loadProject(projectId)
       
+      // 更新 generationState 以便显示重新生成按钮
+      if (!result.success && result.failCount > 0) {
+        setGenerationState('blocked')
+      } else {
+        setGenerationState('completed')
+      }
+      
+      // 重新初始化 GenerationController 以同步状态
+      try {
+        const restored = await restoreGenerationController(projectId, {
+          width: selectedAspectOption.width,
+          height: selectedAspectOption.height,
+          onProgress: (progress) => {
+            setGenerationProgress(progress)
+            onArtistProgress?.({
+              phase: progress.phase as ArtistGenerationPhase,
+              current: progress.current,
+              total: progress.total,
+              currentItem: progress.currentItem,
+            })
+          },
+          onStateChange: (newState) => {
+            setGenerationState(newState)
+            setIsGeneratingImages(newState === 'running' || newState === 'pausing')
+          },
+          onImageGenerated: async (image, phase) => {
+            await loadProject(projectId)
+          },
+          onComplete: async (completeResult) => {
+            setIsGeneratingImages(false)
+            await loadProject(projectId)
+          },
+          onError: (error) => {
+            setError(error)
+          },
+        })
+        setGenerationController(restored.controller)
+        // 保持之前设置的状态，不覆盖
+      } catch (err) {
+        console.error('Failed to restore GenerationController after batch generation:', err)
+      }
+      
     } catch (err) {
       console.error('批量生成失败:', err)
       setError(err instanceof Error ? err.message : '生成失败')
@@ -650,7 +782,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
       setIsGeneratingImages(false)
       setBatchProgress(null)
     }
-  }, [projectId, currentProject, isGeneratingImages, loadProject, selectedImageAspectRatio, pushAssistantMessage])
+  }, [projectId, currentProject, isGeneratingImages, loadProject, selectedImageAspectRatio, pushAssistantMessage, onArtistProgress])
   
   // 批量生成关键帧图片
   const handleGenerateKeyframes = useCallback(async () => {
@@ -693,17 +825,18 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
         height: aspectRatioOption.height,
         onProgress: (progress) => {
           setBatchProgress(progress)
-          setGenerationProgress({
-            phase: progress.phase,
-            current: progress.completed,
-            total: progress.total,
-            currentItem: progress.currentName,
-          })
         },
       })
       
       setBatchResult(result)
-      setLastGenerateResult({ success: true, phase: 'completed', currentIndex: 0, totalInPhase: 0, isAllDone: true })
+      // 只有在所有图片都成功时才设置 isAllDone: true
+      setLastGenerateResult({ 
+        success: result.success, 
+        phase: 'completed', 
+        currentIndex: 0, 
+        totalInPhase: 0, 
+        isAllDone: result.success && result.failCount === 0 
+      })
       
       // 添加结果消息
       const successMsg = result.success 
@@ -719,6 +852,48 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
       
       await loadProject(projectId)
       
+      // 更新 generationState 以便显示重新生成按钮
+      if (!result.success && result.failCount > 0) {
+        setGenerationState('blocked')
+      } else {
+        setGenerationState('completed')
+      }
+      
+      // 重新初始化 GenerationController 以同步状态
+      try {
+        const restored = await restoreGenerationController(projectId, {
+          width: selectedAspectOption.width,
+          height: selectedAspectOption.height,
+          onProgress: (progress) => {
+            setGenerationProgress(progress)
+            onArtistProgress?.({
+              phase: progress.phase as ArtistGenerationPhase,
+              current: progress.current,
+              total: progress.total,
+              currentItem: progress.currentItem,
+            })
+          },
+          onStateChange: (newState) => {
+            setGenerationState(newState)
+            setIsGeneratingImages(newState === 'running' || newState === 'pausing')
+          },
+          onImageGenerated: async (image, phase) => {
+            await loadProject(projectId)
+          },
+          onComplete: async (completeResult) => {
+            setIsGeneratingImages(false)
+            await loadProject(projectId)
+          },
+          onError: (error) => {
+            setError(error)
+          },
+        })
+        setGenerationController(restored.controller)
+        // 保持之前设置的状态，不覆盖
+      } catch (err) {
+        console.error('Failed to restore GenerationController after keyframe generation:', err)
+      }
+      
     } catch (err) {
       console.error('批量生成关键帧失败:', err)
       setError(err instanceof Error ? err.message : '生成失败')
@@ -726,7 +901,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
       setIsGeneratingImages(false)
       setBatchProgress(null)
     }
-  }, [projectId, currentProject, isGeneratingImages, loadProject, selectedImageAspectRatio, pushAssistantMessage])
+  }, [projectId, currentProject, isGeneratingImages, loadProject, selectedImageAspectRatio, pushAssistantMessage, onArtistProgress])
 
   // 获取美工阶段统计信息
   // 1. 待生成总数从 imageDesigner 获取
@@ -754,6 +929,94 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   const totalFailedImages = artistStats 
     ? (artistStats.failedCharacters + artistStats.failedScenes + artistStats.failedKeyframes)
     : 0
+
+  // ===== 美工阶段：暂停/继续/重试控制 =====
+  
+  // 暂停生成
+  const handlePauseGeneration = useCallback(() => {
+    if (generationController && generationState === 'running') {
+      generationController.pause()
+      pushAssistantMessage('⏸️ 正在暂停生成，等待当前任务完成...')
+    }
+  }, [generationController, generationState, pushAssistantMessage])
+  
+  // 继续生成
+  // 注意：restoreGenerationController() 恢复后 controller 内部 state 仍是 idle
+  // UI 为了展示“继续生成”按钮会把 generationState 设为 suggestedState=paused
+  // 因此这里需要根据 controller.state 选择 start() / resume()
+  const handleResumeGeneration = useCallback(async () => {
+    if (!generationController || generationState !== 'paused') return
+
+    try {
+      pushAssistantMessage('▶️ 继续生成图片...')
+
+      // 恢复后大多数情况 controller.state === 'idle'，应调用 start() 才会真正发起请求
+      if (generationController.state === 'idle' || generationController.state === 'completed') {
+        await generationController.start()
+      } else {
+        await generationController.resume()
+      }
+    } catch (err) {
+      console.error('继续生成异常:', err)
+      setError(err instanceof Error ? err.message : '继续生成失败')
+    }
+  }, [generationController, generationState, pushAssistantMessage])
+  
+  // 重试失败的图片（包含 pending）
+  const handleRetryFailed = useCallback(async () => {
+    // 如果有 generationController，使用它来重试
+    if (generationController) {
+      try {
+        pushAssistantMessage('🔄 重新生成失败和未完成的图片...')
+        await generationController.retryFailed({ includePending: true })
+      } catch (err) {
+        console.error('重新生成失败图片异常:', err)
+        setError(err instanceof Error ? err.message : '重新生成失败')
+      }
+      return
+    }
+    
+    // 如果没有 generationController，使用旧版批量生成方法
+    // 这种情况发生在使用旧版批量生成方法后，generationController 还未初始化
+    if (!currentProject?.artist) return
+    
+    const hasFailedReferences = (artistStats?.failedCharacters || 0) > 0 || (artistStats?.failedScenes || 0) > 0
+    const hasFailedKeyframes = (artistStats?.failedKeyframes || 0) > 0
+    
+    pushAssistantMessage('🔄 重新生成失败的图片...')
+    
+    // 如果有失败的参考图，先重新生成参考图
+    if (hasFailedReferences) {
+      await handleGenerateReferences()
+    }
+    
+    // 如果有失败的关键帧，重新生成关键帧
+    if (hasFailedKeyframes) {
+      await handleGenerateKeyframes()
+    }
+  }, [generationController, pushAssistantMessage, currentProject?.artist, artistStats, handleGenerateReferences, handleGenerateKeyframes])
+  
+  // 获取状态显示文本
+  const getStateDisplayText = useCallback((state: GenerationState): { text: string; icon: string; color: string } => {
+    switch (state) {
+      case 'idle':
+        return { text: '就绪', icon: '⚪', color: '#6b7280' }
+      case 'running':
+        return { text: '生成中', icon: '🔄', color: '#3b82f6' }
+      case 'pausing':
+        return { text: '暂停中...', icon: '⏳', color: '#f59e0b' }
+      case 'paused':
+        return { text: '已暂停', icon: '⏸️', color: '#f59e0b' }
+      case 'blocked':
+        return { text: '已阻塞（有失败）', icon: '🚫', color: '#ef4444' }
+      case 'completed':
+        return { text: '已完成', icon: '✅', color: '#22c55e' }
+      case 'error':
+        return { text: '错误', icon: '❌', color: '#ef4444' }
+      default:
+        return { text: '未知', icon: '❓', color: '#6b7280' }
+    }
+  }, [])
 
   // 获取导演阶段统计信息
   const directorStats = stage === 'director' && currentProject 
@@ -857,6 +1120,57 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
     }
   }, [projectId, currentProject, isGeneratingVideos, videoResolution, videoAspectRatio, loadProject, pushAssistantMessage])
 
+  // 批量导出已生成视频（ZIP）
+  const handleExportVideosZip = useCallback(async () => {
+    // 若正在导出，则再次点击视为取消
+    if (isExportingVideosZip) {
+      exportAbortRef.current?.abort()
+      setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: '⏹️ 已取消导出 ZIP',
+        timestamp: new Date().toISOString(),
+      }])
+      return
+    }
+
+    if (!currentProject) return
+
+    const completedCount = (currentProject.director?.videos || []).filter(v => v.status === 'completed').length
+    if (completedCount === 0) {
+      setError('没有已生成的视频可导出')
+      return
+    }
+
+    setIsExportingVideosZip(true)
+    setError(null)
+
+    const controller = new AbortController()
+    exportAbortRef.current = controller
+
+    try {
+      await exportDirectorVideosAsZip(currentProject, {
+        abortSignal: controller.signal,
+        onProgress: (p) => setExportZipProgress(p),
+      })
+
+      setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `📦 导出完成：已打包 ${completedCount} 个视频` ,
+        timestamp: new Date().toISOString(),
+      }])
+
+    } catch (err) {
+      console.error('导出 ZIP 失败:', err)
+      setError(err instanceof Error ? err.message : '导出失败')
+    } finally {
+      setIsExportingVideosZip(false)
+      setExportZipProgress(null)
+      exportAbortRef.current = null
+    }
+  }, [currentProject, isExportingVideosZip])
+
   // 处理键盘事件
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -866,7 +1180,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   }
 
   return (
-    <div className="chat-panel">
+    <div className="chat-panel notranslate" translate="no">
       {/* 头部 */}
       <header className="chat-header">
         <div className="chat-header-left">
@@ -1029,12 +1343,37 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
             </div>
           )}
 
+          {/* ZIP 导出进度 */}
+          {isExportingVideosZip && exportZipProgress && (
+            <div className="generation-progress">
+              <div className="progress-header">
+                <span className="progress-phase">
+                  {exportZipProgress.phase === 'zipping' ? '📦 正在生成 ZIP...' : '⬇️ 正在下载并打包...'}
+                </span>
+              </div>
+              <div className="progress-detail">
+                进度: {exportZipProgress.current}/{exportZipProgress.total}
+                {exportZipProgress.currentShot && ` - ${exportZipProgress.currentShot}`}
+              </div>
+              <div className="progress-bar">
+                <div
+                  className="progress-fill"
+                  style={{ width: `${exportZipProgress.total ? (exportZipProgress.current / exportZipProgress.total) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="director-params">
             <div className="param-row">
               <label>📺 分辨率</label>
               <select 
                 value={videoResolution}
-                onChange={(e) => setVideoResolution(e.target.value as '480p' | '720p')}
+                onChange={(e) => {
+                  const value = e.target.value as '480p' | '720p'
+                  setVideoResolution(value)
+                  setDirectorVideoConfig(projectId, { resolution: value })
+                }}
                 className="param-select"
                 disabled={isGeneratingVideos}
               >
@@ -1048,7 +1387,11 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
               <label>📏 宽高比</label>
               <select 
                 value={videoAspectRatio}
-                onChange={(e) => setVideoAspectRatio(e.target.value as '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9')}
+                onChange={(e) => {
+                  const value = e.target.value as '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9'
+                  setVideoAspectRatio(value)
+                  setDirectorVideoConfig(projectId, { ratio: value })
+                }}
                 className="param-select"
                 disabled={isGeneratingVideos}
               >
@@ -1079,6 +1422,17 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
                 }
               </button>
             )}
+
+            <button
+              className={`start-generation-btn export-zip-btn ${isExportingVideosZip ? 'generating' : ''}`}
+              onClick={handleExportVideosZip}
+              disabled={isGeneratingVideos || (!isExportingVideosZip && (directorStats?.completedVideos || 0) === 0)}
+            >
+              {isExportingVideosZip
+                ? `⏹️ 中止导出 ${exportZipProgress?.current || 0}/${exportZipProgress?.total || 0}`
+                : `📦 导出视频 ZIP (${directorStats?.completedVideos || 0}个)`
+              }
+            </button>
           </div>
           
           {/* 提示信息 */}
@@ -1093,6 +1447,39 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
       {/* 美工阶段控制面板 - 手动生成模式 */}
       {stage === 'artist' && (
         <div className="artist-controls">
+          {/* 生成状态指示器 */}
+          {generationController && (
+            <div className="generation-state-indicator" style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px',
+              padding: '8px 12px',
+              background: 'white',
+              borderRadius: '8px',
+              border: `1px solid ${getStateDisplayText(generationState).color}20`,
+              marginBottom: '8px'
+            }}>
+              <span style={{ fontSize: '16px' }}>{getStateDisplayText(generationState).icon}</span>
+              <span style={{ 
+                fontSize: '13px', 
+                fontWeight: 500, 
+                color: getStateDisplayText(generationState).color 
+              }}>
+                状态: {getStateDisplayText(generationState).text}
+              </span>
+              {generationState === 'pausing' && (
+                <span style={{ fontSize: '11px', color: '#f59e0b', marginLeft: 'auto' }}>
+                  等待当前任务完成...
+                </span>
+              )}
+              {generationState === 'blocked' && totalFailedImages > 0 && (
+                <span style={{ fontSize: '11px', color: '#ef4444', marginLeft: 'auto' }}>
+                  {totalFailedImages} 张失败
+                </span>
+              )}
+            </div>
+          )}
+          
           {/* 统计信息 */}
           {artistStats && (artistStats.totalCharacters > 0 || artistStats.totalScenes > 0 || artistStats.totalKeyframes > 0) && (
             <div className="artist-stats">
@@ -1117,16 +1504,66 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
                   {artistStats.failedKeyframes > 0 && <span style={{color: 'red', marginLeft: '4px'}}>(失败{artistStats.failedKeyframes})</span>}
                 </span>
               </div>
-              {totalFailedImages > 0 && (
+              {totalFailedImages > 0 && generationState !== 'running' && generationState !== 'pausing' && (
                 <div className="stat-row" style={{marginTop: '8px', color: '#ff9800'}}>
-                  ⚠️ 有 {totalFailedImages} 张图片生成失败，点击「继续生成」可自动重试
+                  ⚠️ 有 {totalFailedImages} 张图片生成失败，点击「重新生成」可自动重试
                 </div>
               )}
             </div>
           )}
           
-          {/* 当前生成状态 */}
-          {isGeneratingImages && batchProgress && (
+          {/* 失败图片错误信息展示 */}
+          {generationController && generationState === 'blocked' && generationProgress?.error && (
+            <div className="error-message-box" style={{
+              padding: '10px 12px',
+              background: '#fef2f2',
+              border: '1px solid #fca5a5',
+              borderRadius: '8px',
+              marginBottom: '8px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                <span style={{ fontSize: '16px' }}>❌</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#b91c1c', marginBottom: '4px' }}>
+                    生成失败
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#dc2626', wordBreak: 'break-word' }}>
+                    {generationProgress.error}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* 当前生成状态 - 使用新版 GenerationController 进度 */}
+          {(generationState === 'running' || generationState === 'pausing') && generationProgress && (
+            <div className="generation-progress">
+              <div className="progress-header">
+                <span className="progress-phase">
+                  {generationState === 'pausing' ? '⏳' : '⟳'} 
+                  {generationState === 'pausing' ? ' 暂停中...' : ` 正在生成${generationProgress.phase === 'characters' ? '角色图' : generationProgress.phase === 'scenes' ? '场景图' : generationProgress.phase === 'keyframes' ? '关键帧' : '图片'}...`}
+                </span>
+              </div>
+              <div className="progress-detail">
+                进度: {generationProgress.overallCompleted}/{generationProgress.overallTotal}
+                {generationProgress.currentItem && ` - ${generationProgress.currentItem}`}
+                {generationProgress.failedCount > 0 && (
+                  <span style={{ color: '#ef4444', marginLeft: '8px' }}>
+                    (失败: {generationProgress.failedCount})
+                  </span>
+                )}
+              </div>
+              <div className="progress-bar">
+                <div 
+                  className="progress-fill" 
+                  style={{ width: `${(generationProgress.overallCompleted / generationProgress.overallTotal) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+          
+          {/* 旧版批量生成进度（兼容） */}
+          {isGeneratingImages && !generationController && batchProgress && (
             <div className="generation-progress">
               <div className="progress-header">
                 <span className="progress-phase">
@@ -1146,11 +1583,79 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
             </div>
           )}
           
-          {isGeneratingImages && !batchProgress && (
+          {isGeneratingImages && !generationController && !batchProgress && (
             <div className="generation-progress">
               <div className="progress-header">
                 <span className="progress-phase">⟳ 正在生成图片...</span>
               </div>
+            </div>
+          )}
+          
+          {/* 暂停/继续控制按钮 */}
+          {generationController && (generationState === 'running' || generationState === 'pausing' || generationState === 'paused') && (
+            <div className="generation-control-buttons" style={{ 
+              display: 'flex', 
+              gap: '8px', 
+              marginBottom: '8px' 
+            }}>
+              {generationState === 'running' && (
+                <button 
+                  className="pause-btn"
+                  onClick={handlePauseGeneration}
+                  style={{
+                    flex: 1,
+                    padding: '10px 16px',
+                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  ⏸️ 暂停生成
+                </button>
+              )}
+              {generationState === 'pausing' && (
+                <button 
+                  disabled
+                  style={{
+                    flex: 1,
+                    padding: '10px 16px',
+                    background: '#d1d5db',
+                    color: '#6b7280',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    cursor: 'not-allowed',
+                  }}
+                >
+                  ⏳ 暂停中...
+                </button>
+              )}
+              {generationState === 'paused' && (
+                <button 
+                  className="resume-btn"
+                  onClick={handleResumeGeneration}
+                  style={{
+                    flex: 1,
+                    padding: '10px 16px',
+                    background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  ▶️ 继续生成
+                </button>
+              )}
             </div>
           )}
           
@@ -1164,9 +1669,17 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
                 </span>
                 <select 
                   value={selectedImageAspectRatio}
-                  onChange={(e) => setSelectedImageAspectRatio(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setSelectedImageAspectRatio(value)
+                    try {
+                      localStorage.setItem(getAspectRatioStorageKey(), value)
+                    } catch {
+                      // ignore
+                    }
+                  }}
                   className="param-select"
-                  disabled={isGeneratingImages}
+                  disabled={isGeneratingImages || generationState === 'running' || generationState === 'pausing'}
                 >
                   {IMAGE_ASPECT_RATIO_OPTIONS.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.shape} {opt.label}</option>
@@ -1178,7 +1691,8 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
           
           {/* 操作按钮 */}
           <div className="artist-actions">
-            {lastGenerateResult?.isAllDone ? (
+            {/* 只有在所有图片都成功完成且没有失败图片时才显示完成消息 */}
+            {lastGenerateResult?.isAllDone && totalFailedImages === 0 ? (
               <div className="all-done-message">
                 🎉 所有图片已生成完成！
               </div>
@@ -1188,10 +1702,10 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
                 <button 
                   className="start-generation-btn"
                   onClick={handleGenerateReferences}
-                  disabled={isGeneratingImages || (ENABLE_IMAGE_GENERATION && !currentProject?.imageDesigner)}
+                  disabled={isGeneratingImages || generationState === 'running' || generationState === 'pausing' || (ENABLE_IMAGE_GENERATION && !currentProject?.imageDesigner)}
                 >
-                  {isGeneratingImages && (batchProgress?.phase === 'characters' || batchProgress?.phase === 'scenes')
-                    ? `⟳ 生成中... ${batchProgress?.completed || 0}/${batchProgress?.total || 0}` 
+                  {(isGeneratingImages || generationState === 'running' || generationState === 'pausing') && (batchProgress?.phase === 'characters' || batchProgress?.phase === 'scenes' || generationProgress?.phase === 'characters' || generationProgress?.phase === 'scenes')
+                    ? `⟳ 生成中... ${generationProgress?.current || batchProgress?.completed || 0}/${generationProgress?.total || batchProgress?.total || 0}` 
                     : artistStats && (artistStats.completedCharacters > 0 || artistStats.completedScenes > 0)
                       ? `🔄 重新生成角色和场景图 (${artistStats.completedCharacters + artistStats.completedScenes}/${artistStats.totalCharacters + artistStats.totalScenes})`
                       : `🎨 批量生成角色和场景图 (${artistStats?.totalCharacters || 0}+${artistStats?.totalScenes || 0})`
@@ -1208,6 +1722,8 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
                     }}
                     disabled={
                       isGeneratingImages ||
+                      generationState === 'running' ||
+                      generationState === 'pausing' ||
                       (ENABLE_IMAGE_GENERATION && (
                         !currentProject?.imageDesigner ||
                         !currentProject?.artist?.characterImages?.length ||
@@ -1215,8 +1731,8 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
                       ))
                     }
                   >
-                    {isGeneratingImages && batchProgress?.phase === 'keyframes'
-                      ? `⟳ 生成中... ${batchProgress?.completed || 0}/${batchProgress?.total || 0}` 
+                    {(isGeneratingImages || generationState === 'running' || generationState === 'pausing') && (batchProgress?.phase === 'keyframes' || generationProgress?.phase === 'keyframes')
+                      ? `⟳ 生成中... ${generationProgress?.current || batchProgress?.completed || 0}/${generationProgress?.total || batchProgress?.total || 0}` 
                       : artistStats && artistStats.completedKeyframes > 0
                         ? `🔄 重新生成关键帧 (${artistStats.completedKeyframes}/${artistStats.totalKeyframes})`
                         : `🎬 批量生成关键帧 (${artistStats?.totalKeyframes || 0})`
@@ -1224,15 +1740,50 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
                   </button>
                   
                   {/* 关键帧生成引导气泡 */}
-                  {showKeyframeGuide && !isGeneratingImages && (
+                  {showKeyframeGuide && !isGeneratingImages && generationState !== 'running' && generationState !== 'pausing' && (
                     <div className="keyframe-guide">
                       <div className="keyframe-guide-content">
+                        <button
+                          type="button"
+                          className="guide-close"
+                          aria-label="关闭提示"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onKeyframeGuideClick?.()
+                          }}
+                        >
+                          ×
+                        </button>
+
                         <span className="keyframe-guide-icon">👇</span>
                         <span className="keyframe-guide-text">角色和场景图已完成，点击这里继续生成关键帧！</span>
                       </div>
                     </div>
                   )}
                 </div>
+                
+                {/* 重新生成失败图片按钮 - 仅在有失败图片且不在生成中时显示 */}
+                {totalFailedImages > 0 && !isGeneratingImages && generationState !== 'running' && generationState !== 'pausing' && (
+                  <button 
+                    className="retry-failed-btn"
+                    onClick={handleRetryFailed}
+                    style={{
+                      width: '100%',
+                      padding: '12px 20px',
+                      background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      marginTop: '8px',
+                    }}
+                  >
+                    🔄 重新生成失败图片 ({totalFailedImages} 张)
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -1274,6 +1825,28 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
             {showStartSendGuide && !isLoading && input.trim() === '开始' && (
               <div className="send-guide">
                 <div className="send-guide-content">
+                  <button
+                    type="button"
+                    className="guide-close"
+                    aria-label="关闭提示"
+                    onClick={(e) => {
+                      e.stopPropagation()
+
+                      if (currentProject && (stage === 'storyboard' || stage === 'imageDesigner')) {
+                        const key = getStartSendGuideStorageKey(currentProject.meta.id, stage)
+                        try {
+                          localStorage.setItem(key, '1')
+                        } catch {
+                          // ignore
+                        }
+                      }
+
+                      setShowStartSendGuide(false)
+                    }}
+                  >
+                    ×
+                  </button>
+
                   <span className="send-guide-icon">👇</span>
                   <span className="send-guide-text">点击「发送」开始</span>
                 </div>

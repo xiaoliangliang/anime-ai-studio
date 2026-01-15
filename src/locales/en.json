@@ -39,6 +39,7 @@
       { "label": "Post-Apocalyptic", "value": "post_apocalyptic" }
     ],
     "episodes": [
+      { "label": "1 Episode", "value": 1 },
       { "label": "5 Episodes", "value": 5 },
       { "label": "10 Episodes", "value": 10 },
       { "label": "15 Episodes", "value": 15 },

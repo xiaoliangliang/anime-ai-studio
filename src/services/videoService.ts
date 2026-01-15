@@ -7,6 +7,7 @@ import { saveAsset } from './storageService';
 import type { Asset } from '@/types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const BATCH_VIDEO_INTERVAL_MS = 180_000;
 
 export interface GenerateVideoOptions {
   prompt: string;
@@ -125,9 +126,9 @@ export async function batchGenerateVideos(
 
     results.set(shot.id, result);
 
-    // 视频生成需要更长的间隔
+    // 视频生成需要更长的间隔（避免触发限流）
     if (result.success) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, BATCH_VIDEO_INTERVAL_MS));
     }
   }
 

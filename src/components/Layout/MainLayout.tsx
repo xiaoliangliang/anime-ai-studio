@@ -5,6 +5,7 @@
 import { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import { useProject } from '@/contexts/ProjectContext'
 import type { ShotSize, CameraAngle, CameraMovement, Shot, Project, ProjectStage } from '@/types'
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import ChatPanel from './ChatPanel'
 import CanvasPanel from './CanvasPanel'
 import './MainLayout.css'
@@ -72,6 +73,14 @@ function isArtistMidwayState(project: Project | null): boolean {
   return hasCompletedCharacterOrScene && !hasCompletedKeyframes
 }
 
+function getStageGuideDismissedKey(projectId: string, targetStage: ProjectStage): string {
+  return `guideDismissed:stage:${projectId}:${targetStage}`
+}
+
+function getKeyframeGuideDismissedKey(projectId: string): string {
+  return `guideDismissed:keyframe:${projectId}`
+}
+
 export default function MainLayout({ projectId, autoStart, initialMessage }: MainLayoutProps) {
   // Debug: 输出接收到的 props
   console.log('[MainLayout] props:', { projectId, autoStart, initialMessage })
@@ -121,12 +130,22 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
     ) {
       // 当前阶段刚完成，显示引导到下一阶段
       const nextStage = stageOrder[currentIndex + 1]
-      setGuideTargetStage(nextStage)
+      const key = getStageGuideDismissedKey(projectId, nextStage)
+      let dismissed = false
+      try {
+        dismissed = localStorage.getItem(key) === '1'
+      } catch {
+        // ignore
+      }
+
+      if (!dismissed) {
+        setGuideTargetStage(nextStage)
+      }
     }
     
     // 更新记录
     prevCompletedRef.current = { ...stageCompletedStatus }
-  }, [stageCompletedStatus, currentStage])
+  }, [stageCompletedStatus, currentStage, projectId])
   
   // 监听美工阶段中间状态，触发关键帧引导
   useEffect(() => {
@@ -139,7 +158,17 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
     
     // 刚进入中间状态时显示引导
     if (isMidway && !prevArtistMidwayRef.current) {
-      setShowKeyframeGuide(true)
+      const key = getKeyframeGuideDismissedKey(projectId)
+      let dismissed = false
+      try {
+        dismissed = localStorage.getItem(key) === '1'
+      } catch {
+        // ignore
+      }
+
+      if (!dismissed) {
+        setShowKeyframeGuide(true)
+      }
     }
     
     // 完成关键帧后隐藏引导
@@ -148,7 +177,7 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
     }
     
     prevArtistMidwayRef.current = isMidway
-  }, [currentProject, currentStage])
+  }, [currentProject, currentStage, projectId])
   
   // 切换阶段时，清除引导
   const handleStageChange = useCallback((stageId: ProjectStage) => {
@@ -203,6 +232,16 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
               const valid: CameraMovement[] = ['固定', '推进', '拉远', '跟随', '环绕', '升降']
               return valid.includes(val as CameraMovement) ? (val as CameraMovement) : '固定'
             }
+
+            const splitCharacters = (val: unknown): string[] => {
+              const raw = String(val || '').trim()
+              if (!raw || ['无', '空', '空镜', '空镜无人物'].includes(raw)) return []
+              return raw
+                .split(/\s*[、,，\/|&;；]+\s*/g)
+                .map(s => s.trim())
+                .filter(Boolean)
+                .filter(name => !['无', '空', '空镜'].includes(name))
+            }
             
             const rhythmVal = storyboardData.rhythmType
             const rhythmType: 'fast' | 'medium' | 'slow' = 
@@ -216,6 +255,13 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
               rhythmType,
               shots: (storyboardData.shots || []).map((shot: unknown, idx: number): Shot => {
                 const s = shot as Record<string, unknown>
+                const rawCharacters =
+                  (Array.isArray((s as any).characters) && (s as any).characters) ||
+                  (s.character as string) ||
+                  ''
+                const characters = Array.isArray(rawCharacters)
+                  ? rawCharacters.map(x => String(x || '').trim()).filter(Boolean)
+                  : splitCharacters(rawCharacters)
                 return {
                   id: (s.shotId as string) || `shot-${idx}`,
                   shotNumber: (s.shotId as string) || `S01-${String(idx + 1).padStart(2, '0')}`,
@@ -227,6 +273,7 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
                   duration: (s.duration as number) || 5,
                   dialogue: (s.dialogue as string) || '无',
                   assignee: (s.character as string) || '',
+                  characters: characters.length > 0 ? characters : undefined,
                   notes: (s.notes as string) || '',
                   isStale: false,
                 }
@@ -436,7 +483,7 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
   }, [currentStage, updateProject])
 
   return (
-    <div className="main-layout">
+    <div className="main-layout notranslate" translate="no">
       {/* 顶部导航栏 */}
       <header className="layout-header">
         <div className="header-left">
@@ -471,6 +518,26 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
                 {showGuide && (
                   <div className="stage-guide">
                     <div className="stage-guide-content">
+                      <button
+                        type="button"
+                        className="guide-close"
+                        aria-label="关闭提示"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          try {
+                            localStorage.setItem(
+                              getStageGuideDismissedKey(projectId, stage.id as ProjectStage),
+                              '1'
+                            )
+                          } catch {
+                            // ignore
+                          }
+                          setGuideTargetStage(null)
+                        }}
+                      >
+                        ×
+                      </button>
+
                       <span className="stage-guide-text">点击进入下一阶段</span>
                       <span className="stage-guide-arrow">👆</span>
                     </div>
@@ -491,20 +558,31 @@ export default function MainLayout({ projectId, autoStart, initialMessage }: Mai
       <div className="layout-content">
         {/* 左侧对话面板 */}
         <aside className="chat-panel-wrapper">
-          <ChatPanel 
-            projectId={projectId} 
-            stage={currentStage}
-            onDataGenerated={handleDataGenerated}
-            autoStart={autoStart}
-            initialMessage={initialMessage}
-            showKeyframeGuide={showKeyframeGuide}
-            onKeyframeGuideClick={() => setShowKeyframeGuide(false)}
-          />
+          <ErrorBoundary name="ChatPanel">
+            <ChatPanel 
+              projectId={projectId} 
+              stage={currentStage}
+              onDataGenerated={handleDataGenerated}
+              autoStart={autoStart}
+              initialMessage={initialMessage}
+              showKeyframeGuide={showKeyframeGuide}
+              onKeyframeGuideClick={() => {
+                try {
+                  localStorage.setItem(getKeyframeGuideDismissedKey(projectId), '1')
+                } catch {
+                  // ignore
+                }
+                setShowKeyframeGuide(false)
+              }}
+            />
+          </ErrorBoundary>
         </aside>
 
         {/* 右侧画布面板 */}
         <main className="canvas-panel-wrapper">
-          <CanvasPanel projectId={projectId} stage={currentStage} />
+          <ErrorBoundary name="CanvasPanel">
+            <CanvasPanel projectId={projectId} stage={currentStage} />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

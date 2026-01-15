@@ -73,6 +73,9 @@ export {
   renderStageData,
   renderArtistData,
   renderDirectorData,
+  getDirectorVideoPreviewUrl,
+  setDirectorVideoPreviewUrl,
+  clearDirectorVideoPreviewUrlCache,
 } from './canvasService';
 
 // 图片生成服务
@@ -107,6 +110,9 @@ export {
   getArtistStats,
   getGeneratedImageUrl,
   regenerateSingleImage,
+  // GenerationController 集成方法
+  generateReferencesWithController,
+  restoreAndContinueReferences,
   type GenerationPhase,
   type GenerationProgress,
   type GenerateAllImagesOptions,
@@ -115,6 +121,8 @@ export {
   type GenerateNextOptions,
   type BatchGenerationProgress,
   type BatchGenerationResult,
+  type GenerateReferencesWithControllerOptions,
+  type GenerateReferencesWithControllerResult,
 } from './artistService';
 
 // 导演阶段服务
@@ -147,3 +155,29 @@ export {
   type PollOptions,
   type PollResult,
 } from './taskPolling';
+
+// 生成控制器服务
+export {
+  GenerationController,
+  GenerationQueue,
+  createGenerationController,
+  restoreGenerationController,
+  getPendingImageCount,
+  getFailedImages,
+  canGenerateKeyframes,
+  validateKeyframeDependencies,
+  regenerateSingleImage as regenerateSingleImageWithController,
+  isValidTransition,
+  type GenerationState,
+  type GenerationPhase as ControllerGenerationPhase,
+  type GenerationProgress as ControllerGenerationProgress,
+  type GenerationControllerConfig,
+  type GenerateAllImagesResult as ControllerGenerateAllImagesResult,
+  type RetryOptions,
+  type IGenerationController,
+  type IGenerationQueue,
+  type QueueItem,
+  type QueueItemStatus,
+  type RestoredState,
+  type KeyframeDependencyCheckResult,
+} from './generationController';

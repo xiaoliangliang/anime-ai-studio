@@ -327,10 +327,11 @@
 }
 
 .send-guide-content {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 10px 34px 10px 14px;
   background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   color: white;
   border-radius: 10px;
@@ -338,6 +339,39 @@
   white-space: nowrap;
   font-size: 13px;
   font-weight: 600;
+}
+
+.guide-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.95);
+  cursor: pointer;
+  line-height: 1;
+  font-size: 14px;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.guide-close:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.guide-close:active {
+  transform: scale(0.96);
+}
+
+.guide-close:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 2px;
 }
 
 .send-guide-content::after {
@@ -663,10 +697,11 @@
 }
 
 .keyframe-guide-content {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 10px 38px 10px 16px;
   background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
   color: white;
   border-radius: 10px;
@@ -1075,6 +1110,16 @@
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
+}
+
+/* 导出 ZIP 按钮（非导出中状态） */
+.director-controls .export-zip-btn:not(.generating) {
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+}
+
+.director-controls .export-zip-btn:not(.generating):hover:not(:disabled) {
+  background: linear-gradient(135deg, #0284c7 0%, #1d4ed8 100%);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
 }
 
 .director-controls .all-done-message {

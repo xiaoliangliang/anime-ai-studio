@@ -13,7 +13,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     width = '1024',
     height = '1024',
     seed,
-    model = 'flux',
+    model = 'seedream',
     enhance = 'true',
     nologo = 'true',
   } = req.query;

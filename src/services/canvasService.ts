@@ -3,7 +3,7 @@
  * 管理画布操作和状态
  */
 
-import type { Editor, TLShapeId } from 'tldraw';
+import type { Editor, TLShapeId, JsonObject } from 'tldraw';
 import type { ProjectStage, StageAreaConfig } from '@/types';
 
 /** 阶段区域配置 - 横向排列，每个阶段占 2000px 宽度 */
@@ -83,6 +83,49 @@ const stageBackgroundIds: Record<ProjectStage, TLShapeId | null> = {
   artist: null,
   director: null,
 };
+
+/**
+ * 导演阶段：视频预览 URL 缓存（用于本地视频 assetId -> blob URL）
+ *
+ * 说明：
+ * - Pollinations 等本地存储模式，GeneratedVideo.videoUrl 可能为空。
+ * - 预览需要从 asset.localData 生成 blob URL，避免把超大的 base64 写进 project 数据。
+ */
+const directorVideoPreviewUrlCache = new Map<string, string>();
+
+export function getDirectorVideoPreviewUrl(assetId: string): string | undefined {
+  if (!assetId) return undefined;
+  return directorVideoPreviewUrlCache.get(assetId);
+}
+
+export function setDirectorVideoPreviewUrl(assetId: string, url: string): void {
+  if (!assetId || !url) return;
+
+  const prev = directorVideoPreviewUrlCache.get(assetId);
+  if (prev && prev !== url && prev.startsWith('blob:')) {
+    try {
+      // URL 仅在浏览器环境存在；即使失败也不影响主流程
+      URL.revokeObjectURL(prev);
+    } catch {
+      // ignore
+    }
+  }
+
+  directorVideoPreviewUrlCache.set(assetId, url);
+}
+
+export function clearDirectorVideoPreviewUrlCache(): void {
+  for (const url of directorVideoPreviewUrlCache.values()) {
+    if (url && url.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // ignore
+      }
+    }
+  }
+  directorVideoPreviewUrlCache.clear();
+}
 
 /** 默认背景框高度 */
 const DEFAULT_BACKGROUND_HEIGHT = 1200;
@@ -1507,71 +1550,73 @@ function renderArtistDataInternal(
   editor: Editor,
   data: Parameters<typeof renderArtistData>[1]
 ): void {
-  const area = STAGE_AREAS.artist;
-  const gap = 15;
-  let currentY = area.y + 80;
+  editor.run(() => {
+    const area = STAGE_AREAS.artist;
+    const gap = 15;
+    let currentY = area.y + 80;
 
-  // 清除旧数据
-  clearStageData(editor, 'artist');
+    // 清除旧数据
+    clearStageData(editor, 'artist');
 
-  // ===== 标题 =====
-  editor.createShape({
-    type: 'text',
-    x: area.x + 20,
-    y: currentY,
-    props: { text: '🖼️ 美工阶段 - 图片生成', size: 'm', font: 'sans', color: 'black' }
-  });
-  currentY += 50;
-
-  // 根据提示词ID对图片分组做一次“防串类”过滤，避免错误数据混入
-  const charPromptIds = new Set<string>(data?.prompts?.characterPrompts?.map(p => p.id) || []);
-  const scenePromptIds = new Set<string>(data?.prompts?.scenePrompts?.map(p => p.id) || []);
-  const kfPromptIds = new Set<string>(data?.prompts?.keyframePrompts?.map(p => p.id) || []);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const filterByPrompt = <T extends { promptId: string; status: string }>(imgs: T[] | undefined, allow: Set<string>): T[] =>
-    (imgs || []).filter(img => img.status !== 'failed' && (allow.size === 0 || allow.has(img.promptId)));
-
-  // 归类成功图片（若没有 prompts 也不做强过滤）
-  const successCharacterImages = filterByPrompt(data?.characterImages, charPromptIds);
-  const successSceneImages = filterByPrompt(data?.sceneImages, scenePromptIds);
-  const successKeyframeImages = filterByPrompt(data?.keyframeImages, kfPromptIds);
-
-  // ===== 统计信息 =====
-  if (data?.stats) {
-    const { totalCharacters = 0, completedCharacters = 0, totalScenes = 0, completedScenes = 0, totalKeyframes = 0, completedKeyframes = 0 } = data.stats;
-    const totalImages = totalCharacters + totalScenes + totalKeyframes;
-    const completedImages = completedCharacters + completedScenes + completedKeyframes;
-    
-    // 进度条背景
-    editor.createShape({
-      type: 'geo',
-      x: area.x + 30,
-      y: currentY,
-      props: { geo: 'rectangle', w: 600, h: 40, color: 'grey', fill: 'semi', dash: 'draw', size: 's' }
-    });
-    
-    // 进度条填充
-    const progressWidth = totalImages > 0 ? (completedImages / totalImages) * 580 : 0;
-    if (progressWidth > 0) {
-      editor.createShape({
-        type: 'geo',
-        x: area.x + 40,
-        y: currentY + 10,
-        props: { geo: 'rectangle', w: progressWidth, h: 20, color: 'green', fill: 'solid', dash: 'draw', size: 's' }
-      });
-    }
-    
-    // 进度文本
+    // ===== 标题 =====
     editor.createShape({
       type: 'text',
-      x: area.x + 650,
-      y: currentY + 8,
-      props: { text: `${completedImages}/${totalImages} 已完成`, size: 's', font: 'sans', color: 'black' }
+      x: area.x + 20,
+      y: currentY,
+      props: { text: '🖼️ 美工阶段 - 图片生成', size: 'm', font: 'sans', color: 'black' }
     });
-    
-    currentY += 60;
-  }
+    currentY += 50;
+
+    // 根据提示词ID对图片分组做一次“防串类”过滤，避免错误数据混入
+    const charPromptIds = new Set<string>(data?.prompts?.characterPrompts?.map(p => p.id) || []);
+    const scenePromptIds = new Set<string>(data?.prompts?.scenePrompts?.map(p => p.id) || []);
+    const kfPromptIds = new Set<string>(data?.prompts?.keyframePrompts?.map(p => p.id) || []);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const filterByPrompt = <T extends { promptId: string; status: string }>(imgs: T[] | undefined, allow: Set<string>): T[] =>
+      (imgs || []).filter(img => (allow.size === 0 || allow.has(img.promptId)));
+
+    // 归类图片（包含 failed/pending/generating/completed）
+    // 失败图会在卡片内展示 ❌ 状态，并可点击单张重新生成
+    const successCharacterImages = filterByPrompt(data?.characterImages, charPromptIds);
+    const successSceneImages = filterByPrompt(data?.sceneImages, scenePromptIds);
+    const successKeyframeImages = filterByPrompt(data?.keyframeImages, kfPromptIds);
+
+    // ===== 统计信息 =====
+    if (data?.stats) {
+      const { totalCharacters = 0, completedCharacters = 0, totalScenes = 0, completedScenes = 0, totalKeyframes = 0, completedKeyframes = 0 } = data.stats;
+      const totalImages = totalCharacters + totalScenes + totalKeyframes;
+      const completedImages = completedCharacters + completedScenes + completedKeyframes;
+      
+      // 进度条背景
+      editor.createShape({
+        type: 'geo',
+        x: area.x + 30,
+        y: currentY,
+        props: { geo: 'rectangle', w: 600, h: 40, color: 'grey', fill: 'semi', dash: 'draw', size: 's' }
+      });
+      
+      // 进度条填充
+      const progressWidth = totalImages > 0 ? (completedImages / totalImages) * 580 : 0;
+      if (progressWidth > 0) {
+        editor.createShape({
+          type: 'geo',
+          x: area.x + 40,
+          y: currentY + 10,
+          props: { geo: 'rectangle', w: progressWidth, h: 20, color: 'green', fill: 'solid', dash: 'draw', size: 's' }
+        });
+      }
+      
+      // 进度文本
+      editor.createShape({
+        type: 'text',
+        x: area.x + 650,
+        y: currentY + 8,
+        props: { text: `${completedImages}/${totalImages} 已完成`, size: 's', font: 'sans', color: 'black' }
+      });
+      
+      currentY += 60;
+    }
 
   // 图片卡片配置
   const cardW = 380;         // 卡片宽度（固定）
@@ -1580,6 +1625,37 @@ function renderArtistDataInternal(
   const nameRowH = 30;       // 名称行高度
   const cardPadding = 20;    // 卡片内边距
   const cols = 5;            // 一行5个
+  
+  // 单张重新生成按钮
+  const regenBtnW = 120;
+  const regenBtnH = 28;
+
+  // tldraw 的 shape.meta 需要严格可 JSON 序列化（不能包含 undefined / 非有限数字等）
+  const buildRegenMeta = (params: {
+    imageKey: string;
+    imageName?: unknown;
+    imageType: 'character' | 'scene' | 'keyframe';
+    width?: unknown;
+    height?: unknown;
+  }): Partial<JsonObject> => {
+    const meta: Partial<JsonObject> = {
+      action: 'regenImage',
+      imageKey: params.imageKey,
+      imageType: params.imageType,
+    };
+
+    if (typeof params.imageName === 'string' && params.imageName.trim()) {
+      meta.imageName = params.imageName;
+    }
+
+    const width = typeof params.width === 'number' ? params.width : Number(params.width);
+    const height = typeof params.height === 'number' ? params.height : Number(params.height);
+
+    if (Number.isFinite(width) && width > 0) meta.width = width;
+    if (Number.isFinite(height) && height > 0) meta.height = height;
+
+    return meta;
+  };
   
   // 根据图片 URL 计算显示高度（基于固定宽度和实际宽高比）
   const calcImageHeight = (imageUrl: string | undefined): number => {
@@ -1647,13 +1723,19 @@ function renderArtistDataInternal(
     failed: '❌',
   };
 
-  // 状态颜色
-  const statusColors: Record<string, string> = {
-    pending: 'grey',
-    generating: 'yellow',
-    completed: 'green',
-    failed: 'red',
-  };
+    // 状态颜色
+    const statusColors: Record<string, string> = {
+      pending: 'grey',
+      generating: 'yellow',
+      completed: 'green',
+      failed: 'red',
+    };
+
+    const ensureAsset = (asset: Parameters<typeof editor.createAssets>[0][0]) => {
+      if (!editor.getAsset(asset.id)) {
+        editor.createAssets([asset]);
+      }
+    };
 
   // ===== 角色参考图区块 =====
   if (successCharacterImages.length > 0) {
@@ -1676,7 +1758,8 @@ function renderArtistDataInternal(
     successCharacterImages.forEach((img, idx) => {
       // 计算此图片的动态高度
       const imgH = calcImageHeight(img.imageUrl);
-      const cardH = imgH + promptAreaH + nameRowH + cardPadding;
+      // 额外预留按钮高度，保证"重新生成"不与提示词重叠
+      const cardH = imgH + promptAreaH + nameRowH + cardPadding + regenBtnH + 20;
       rowMaxH = Math.max(rowMaxH, cardH);
 
       // 卡片背景
@@ -1690,8 +1773,8 @@ function renderArtistDataInternal(
         // 获取实际图片尺寸
         const dims = getCachedDimensions(img.imageUrl);
         // 创建图片资源和形状 (tldraw asset ID 必须以 "asset:" 开头)
-        const assetId = `asset:${img.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
-        editor.createAssets([{
+        const assetId = `asset:${img.assetId || img.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
+        ensureAsset({
           id: assetId,
           type: 'image',
           typeName: 'asset',
@@ -1704,7 +1787,7 @@ function renderArtistDataInternal(
             isAnimated: false,
           },
           meta: {},
-        }]);
+        });
         editor.createShape({
           type: 'image',
           x: colX + 10,
@@ -1743,6 +1826,31 @@ function renderArtistDataInternal(
           color: 'black'
         }
       });
+
+      // 重新生成按钮（无论成功/占位都可点击重新生成替换）
+      {
+        const imageKey = `characters:${img.promptId}`;
+        const dims = img.imageUrl ? getCachedDimensions(img.imageUrl) : undefined;
+        const btnY = promptY + promptAreaH + 10;
+        const meta = buildRegenMeta({
+          imageKey,
+          imageName: img.name,
+          imageType: 'character',
+          width: dims?.width,
+          height: dims?.height,
+        });
+
+        editor.createShape({
+          type: 'geo', x: colX + 10, y: btnY,
+          props: { geo: 'rectangle', w: regenBtnW, h: regenBtnH, color: 'orange', fill: 'semi', dash: 'solid', size: 's' },
+          meta,
+        });
+        editor.createShape({
+          type: 'text', x: colX + 20, y: btnY + 6,
+          props: { text: '🔁 重新生成', size: 's', font: 'sans', color: 'orange' },
+          meta,
+        });
+      }
 
       // 错误信息
       if (img.status === 'failed' && img.error) {
@@ -1787,7 +1895,8 @@ function renderArtistDataInternal(
     successSceneImages.forEach((img, idx) => {
       // 计算此图片的动态高度
       const imgH = calcImageHeight(img.imageUrl);
-      const cardH = imgH + promptAreaH + nameRowH + cardPadding;
+      // 额外预留按钮高度，保证"重新生成"不与提示词重叠
+      const cardH = imgH + promptAreaH + nameRowH + cardPadding + regenBtnH + 20;
       rowMaxH = Math.max(rowMaxH, cardH);
 
       // 卡片背景
@@ -1800,8 +1909,8 @@ function renderArtistDataInternal(
       if (img.status === 'completed' && img.imageUrl) {
         // 获取实际图片尺寸
         const dims = getCachedDimensions(img.imageUrl);
-        const assetId = `asset:${img.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
-        editor.createAssets([{
+        const assetId = `asset:${img.assetId || img.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
+        ensureAsset({
           id: assetId,
           type: 'image',
           typeName: 'asset',
@@ -1814,7 +1923,7 @@ function renderArtistDataInternal(
             isAnimated: false,
           },
           meta: {},
-        }]);
+        });
         editor.createShape({
           type: 'image',
           x: colX + 10,
@@ -1854,6 +1963,31 @@ function renderArtistDataInternal(
         }
       });
 
+      // 重新生成按钮
+      {
+        const imageKey = `scenes:${img.promptId}`;
+        const dims = img.imageUrl ? getCachedDimensions(img.imageUrl) : undefined;
+        const btnY = scenePromptY + promptAreaH + 10;
+        const meta = buildRegenMeta({
+          imageKey,
+          imageName: img.name,
+          imageType: 'scene',
+          width: dims?.width,
+          height: dims?.height,
+        });
+
+        editor.createShape({
+          type: 'geo', x: colX + 10, y: btnY,
+          props: { geo: 'rectangle', w: regenBtnW, h: regenBtnH, color: 'orange', fill: 'semi', dash: 'solid', size: 's' },
+          meta,
+        });
+        editor.createShape({
+          type: 'text', x: colX + 20, y: btnY + 6,
+          props: { text: '🔁 重新生成', size: 's', font: 'sans', color: 'orange' },
+          meta,
+        });
+      }
+
       // 布局推进
       if ((idx + 1) % cols === 0) {
         colX = area.x + 30;
@@ -1869,13 +2003,6 @@ function renderArtistDataInternal(
   }
 
   // ===== 关键帧图片区块 =====
-  
-  // 调试日志：查看关键帧数据关联
-  console.log('[renderArtistData] 关键帧图片数据:', {
-    keyframeImages: successKeyframeImages.map(img => ({ id: img.id, promptId: img.promptId, name: img.name })),
-    keyframePrompts: data?.prompts?.keyframePrompts?.map(p => ({ id: p.id, code: p.code, hasPrompt: !!p.prompt, refIds: p.referenceIds })),
-  });
-  
   if (successKeyframeImages.length > 0) {
     // 区块标题
     editor.createShape({
@@ -1899,7 +2026,8 @@ function renderArtistDataInternal(
     successKeyframeImages.forEach((img, idx) => {
       // 计算此图片的动态高度
       const kfImgH = calcImageHeight(img.imageUrl);
-      const kfCardH = kfImgH + kfRefH + kfPromptH + nameRowH + 25;
+      // 额外预留按钮高度，保证"重新生成"不与提示词重叠
+      const kfCardH = kfImgH + kfRefH + kfPromptH + nameRowH + regenBtnH + 45;
       rowMaxH = Math.max(rowMaxH, kfCardH);
 
       // 卡片背景
@@ -1915,8 +2043,8 @@ function renderArtistDataInternal(
       if (img.status === 'completed' && img.imageUrl) {
         // 获取实际图片尺寸
         const dims = getCachedDimensions(img.imageUrl);
-        const assetId = `asset:${img.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
-        editor.createAssets([{
+        const assetId = `asset:${img.assetId || img.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
+        ensureAsset({
           id: assetId,
           type: 'image',
           typeName: 'asset',
@@ -1929,7 +2057,7 @@ function renderArtistDataInternal(
             isAnimated: false,
           },
           meta: {},
-        }]);
+        });
         editor.createShape({
           type: 'image',
           x: colX + 10,
@@ -1938,13 +2066,13 @@ function renderArtistDataInternal(
         });
       } else {
         // 占位符
-        const defaultKfH = 200;
+        const placeholderH = kfImgH;
         editor.createShape({
           type: 'geo', x: colX + 10, y: rowY + 10,
-          props: { geo: 'rectangle', w: imgW, h: defaultKfH, color: 'light-violet', fill: 'pattern', dash: 'dotted', size: 's' }
+          props: { geo: 'rectangle', w: imgW, h: placeholderH, color: 'light-violet', fill: 'pattern', dash: 'dotted', size: 's' }
         });
         editor.createShape({
-          type: 'text', x: colX + cardW / 2 - 20, y: rowY + defaultKfH / 2,
+          type: 'text', x: colX + cardW / 2 - 20, y: rowY + 10 + placeholderH / 2,
           props: { text: statusIcons[img.status] || '⏳', size: 'l', font: 'sans', color: 'grey' }
         });
       }
@@ -1982,6 +2110,31 @@ function renderArtistDataInternal(
         }
       });
 
+      // 重新生成按钮
+      {
+        const imageKey = `keyframes:${img.promptId}`;
+        const dims = img.imageUrl ? getCachedDimensions(img.imageUrl) : undefined;
+        const btnY = kfPromptY + kfPromptH + 10;
+        const meta = buildRegenMeta({
+          imageKey,
+          imageName: kfCode,
+          imageType: 'keyframe',
+          width: dims?.width,
+          height: dims?.height,
+        });
+
+        editor.createShape({
+          type: 'geo', x: colX + 10, y: btnY,
+          props: { geo: 'rectangle', w: regenBtnW, h: regenBtnH, color: 'orange', fill: 'semi', dash: 'solid', size: 's' },
+          meta,
+        });
+        editor.createShape({
+          type: 'text', x: colX + 20, y: btnY + 6,
+          props: { text: '🔁 重新生成', size: 's', font: 'sans', color: 'orange' },
+          meta,
+        });
+      }
+
       // 布局推进
       if ((idx + 1) % kfCols === 0) {
         colX = area.x + 30;
@@ -1995,6 +2148,7 @@ function renderArtistDataInternal(
     // 如果最后一行没填满，也要加上该行的高度
     currentY = rowY + (successKeyframeImages.length % kfCols === 0 ? 0 : rowMaxH) + gap + 30;
   }
+
 
   // 如果没有任何成功的图片数据，显示提示
   if (!successCharacterImages.length && !successSceneImages.length && !successKeyframeImages.length) {
@@ -2012,6 +2166,7 @@ function renderArtistDataInternal(
   // 根据内容高度调整背景
   const contentHeight = currentY - area.y + 50;
   updateStageBackgroundHeight(editor, 'artist', contentHeight);
+  });
 }
 
 /**
@@ -2090,6 +2245,7 @@ export function renderDirectorData(
         id: string;
         shotId: string;
         shotNumber?: string;
+        assetId?: string;
         status: 'pending' | 'generating' | 'completed' | 'failed';
         videoUrl?: string;
         error?: string;
@@ -2245,13 +2401,37 @@ export function renderDirectorData(
   };
 
   // 查找镜头的视频状态 - 同时用 shotId 和 shotNumber 匹配
-  const getVideoStatus = (shotId: string, shotNumber: string): { status: string; videoUrl?: string } => {
+  type DirectorVideoInfo = {
+    status: string;
+    videoUrl?: string;
+    videoId?: string;
+    assetId?: string;
+  };
+
+  const getVideoStatus = (shotId: string, shotNumber: string): DirectorVideoInfo => {
     // 优先用 shotId 匹配，如果找不到则用 shotNumber 匹配
     let video = videos.find(v => v.shotId === shotId);
     if (!video) {
       video = videos.find(v => v.shotNumber === shotNumber || v.shotId === shotNumber);
     }
-    return video ? { status: video.status, videoUrl: video.videoUrl } : { status: 'pending' };
+
+    return video
+      ? {
+          status: video.status,
+          videoUrl: video.videoUrl,
+          videoId: video.id,
+          assetId: (video as any).assetId,
+        }
+      : { status: 'pending' };
+  };
+
+  const resolveVideoPreviewUrl = (info: DirectorVideoInfo): string | undefined => {
+    const raw = (info.videoUrl || '').trim();
+    if (raw) return raw;
+    if (info.assetId) {
+      return getDirectorVideoPreviewUrl(info.assetId);
+    }
+    return undefined;
   };
 
   // 查找角色图片
@@ -2280,6 +2460,8 @@ export function renderDirectorData(
   // ===== 渲染每个分镜卡片 =====
   for (const shot of allShots) {
     const videoInfo = getVideoStatus(shot.id, shot.shotNumber);
+    const videoPreviewUrl = resolveVideoPreviewUrl(videoInfo);
+
     const statusIcon = videoStatusIcons[videoInfo.status] || '⏳';
     const cardColor = videoInfo.status === 'completed' ? 'green' : 
                       videoInfo.status === 'generating' ? 'yellow' : 
@@ -2463,40 +2645,63 @@ export function renderDirectorData(
     // 视频预览区域背景
     const videoPreviewX = videoAreaX + 150;
     const videoPreviewY = thumbY;
-    
-    if (videoInfo.status === 'completed' && videoInfo.videoUrl) {
-      // 已完成 - 创建视频 asset 和 shape，实现画布内直接播放
-      const videoAssetId = `asset:dir-video-${shot.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
-      
-      // 创建视频 asset
-      editor.createAssets([{
-        id: videoAssetId,
-        type: 'video',
-        typeName: 'asset',
-        props: { 
-          name: `${shot.shotNumber}-video`, 
-          src: videoInfo.videoUrl, 
-          w: videoW, 
-          h: videoH, 
-          mimeType: 'video/mp4', 
-          isAnimated: true 
-        },
-        meta: {},
-      }]);
-      
-      // 创建视频 shape（可直接在画布上播放）
-      editor.createShape({
-        type: 'video', 
-        x: videoPreviewX, 
-        y: videoPreviewY,
-        props: { 
-          assetId: videoAssetId, 
-          w: videoW, 
-          h: videoH 
-        },
-        meta: { videoUrl: videoInfo.videoUrl, shotId: shot.id, shotNumber: shot.shotNumber },
-      });
-      
+
+    if (videoInfo.status === 'completed') {
+      const baseMeta = {
+        videoUrl: videoPreviewUrl,
+        videoId: videoInfo.videoId,
+        assetId: videoInfo.assetId,
+        shotId: shot.id,
+        shotNumber: shot.shotNumber,
+      };
+
+      if (videoPreviewUrl) {
+        // 已完成 - 创建视频 asset 和 shape，实现画布内直接播放
+        const videoAssetId = `asset:dir-video-${shot.id}` as Parameters<typeof editor.createAssets>[0][0]['id'];
+
+        // 创建视频 asset
+        editor.createAssets([{
+          id: videoAssetId,
+          type: 'video',
+          typeName: 'asset',
+          props: {
+            name: `${shot.shotNumber}-video`,
+            src: videoPreviewUrl,
+            w: videoW,
+            h: videoH,
+            mimeType: 'video/mp4',
+            isAnimated: true
+          },
+          meta: {},
+        }]);
+
+        // 创建视频 shape（可直接在画布上播放）
+        editor.createShape({
+          type: 'video',
+          x: videoPreviewX,
+          y: videoPreviewY,
+          props: {
+            assetId: videoAssetId,
+            w: videoW,
+            h: videoH
+          },
+          meta: baseMeta,
+        });
+      } else {
+        // 已完成但缺少可直接播放的 URL（例如本地存储模式）
+        const meta: any = { action: 'loadVideoPreview', ...baseMeta };
+        editor.createShape({
+          type: 'geo', x: videoPreviewX, y: videoPreviewY,
+          props: { geo: 'rectangle', w: videoW, h: videoH, color: 'green', fill: 'none', dash: 'dashed', size: 's' },
+          meta,
+        });
+        editor.createShape({
+          type: 'text', x: videoPreviewX + 20, y: videoPreviewY + 40,
+          props: { text: '✅ 已生成\n🎞️ 点击加载预览', size: 's', font: 'sans', color: 'green' },
+          meta,
+        });
+      }
+
       // 在视频右侧放置操作按钮：重新生成 / 下载
       const btnX = videoPreviewX + videoW + 20;
       const btnY1 = videoPreviewY;          // 第一行按钮
@@ -2514,22 +2719,28 @@ export function renderDirectorData(
         meta: { action: 'regenVideo', shotId: shot.id, shotNumber: shot.shotNumber }
       });
 
-      // 下载按钮
+      // 下载按钮（即便 videoUrl 为空，也可通过 videoId/assetId 解析）
+      const downloadMeta: any = { action: 'downloadVideo', ...baseMeta };
       editor.createShape({
         type: 'geo', x: btnX, y: btnY2,
         props: { geo: 'rectangle', w: 120, h: 32, color: 'blue', fill: 'semi', dash: 'solid', size: 's' },
-        meta: { action: 'downloadVideo', videoUrl: videoInfo.videoUrl, shotId: shot.id, shotNumber: shot.shotNumber }
+        meta: downloadMeta
       });
       editor.createShape({
         type: 'text', x: btnX + 10, y: btnY2 + 8,
         props: { text: '⬇️ 下载', size: 's', font: 'sans', color: 'blue' },
-        meta: { action: 'downloadVideo', videoUrl: videoInfo.videoUrl, shotId: shot.id, shotNumber: shot.shotNumber }
+        meta: downloadMeta
       });
-      
+
       // 显示状态标签
       editor.createShape({
         type: 'text', x: videoPreviewX, y: videoPreviewY + videoH + 5,
-        props: { text: `✅ ${shot.shotNumber} 视频已生成`, size: 's', font: 'sans', color: 'green' }
+        props: { 
+          text: videoPreviewUrl ? `✅ ${shot.shotNumber} 视频已生成` : `✅ ${shot.shotNumber} 视频已生成（预览待加载）`,
+          size: 's',
+          font: 'sans',
+          color: 'green'
+        }
       });
     } else if (videoInfo.status === 'generating') {
       // 生成中

@@ -160,16 +160,50 @@
 }
 
 .stage-guide-content {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 8px 16px;
+  padding: 8px 28px 8px 16px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
   white-space: nowrap;
+}
+
+.guide-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.95);
+  cursor: pointer;
+  line-height: 1;
+  font-size: 14px;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.guide-close:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.guide-close:active {
+  transform: scale(0.96);
+}
+
+.guide-close:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 2px;
 }
 
 .stage-guide-content::before {

@@ -182,6 +182,7 @@ export interface Shot {
   duration: number;            // 时长(秒)，≤10
   dialogue: string;            // 对话，无则'无'
   assignee?: string;           // 负责人（预留）
+  characters?: string[];       // 出场角色列表（可多角色）
   notes?: string;              // 备注
   isStale: boolean;
   sourceSceneId?: string;      // 关联的剧本场景ID

@@ -505,6 +505,107 @@ export interface BatchGenerationResult {
   errors: string[];
 }
 
+// ========================================
+// GenerationController 集成方法
+// ========================================
+
+import { 
+  createGenerationController, 
+  restoreGenerationController,
+  canGenerateKeyframes as checkKeyframeDependencies,
+  type GenerationControllerConfig,
+  type GenerationProgress as ControllerProgress,
+  type GenerationState,
+  type GenerationPhase as ControllerPhase,
+} from './generationController';
+
+// Re-export GenerationController factory functions for convenience
+export { createGenerationController, restoreGenerationController };
+
+/** 使用 GenerationController 生成所有参考图的选项 */
+export interface GenerateReferencesWithControllerOptions {
+  width?: number;
+  height?: number;
+  onProgress?: (progress: ControllerProgress) => void;
+  onImageGenerated?: (image: GeneratedImage, phase: ControllerPhase) => void;
+  onStateChange?: (state: GenerationState, previousState: GenerationState) => void;
+  onComplete?: (result: GenerateAllImagesResult) => void;
+  onError?: (error: string) => void;
+}
+
+/** 使用 GenerationController 生成所有参考图的结果 */
+export interface GenerateReferencesWithControllerResult {
+  controller: import('./generationController').GenerationController;
+  startPromise: Promise<void>;
+}
+
+/**
+ * 使用 GenerationController 生成所有参考图（角色 + 场景）
+ * 
+ * 此函数创建一个 GenerationController 实例并启动生成流程。
+ * 返回控制器实例，调用方可以使用它来暂停/继续/重试生成。
+ * 
+ * 与 generateAllReferences 的区别：
+ * - 支持暂停/继续/重试
+ * - 支持实时展示每张图片
+ * - 支持 Stop-on-Failure 机制
+ * - 返回控制器实例供后续操作
+ * 
+ * @param projectId 项目ID
+ * @param options 生成选项
+ * @returns 控制器实例和启动 Promise
+ */
+export function generateReferencesWithController(
+  projectId: string,
+  options: GenerateReferencesWithControllerOptions = {}
+): GenerateReferencesWithControllerResult {
+  const controller = createGenerationController({
+    projectId,
+    width: options.width,
+    height: options.height,
+    onProgress: options.onProgress,
+    onImageGenerated: options.onImageGenerated,
+    onStateChange: options.onStateChange,
+    onComplete: options.onComplete,
+    onError: options.onError,
+  });
+
+  // 启动生成（异步）
+  const startPromise = controller.start();
+
+  return {
+    controller,
+    startPromise,
+  };
+}
+
+/**
+ * 恢复并继续生成参考图
+ * 
+ * 此函数从 IndexedDB 恢复之前的生成状态，并返回控制器实例。
+ * 调用方可以检查恢复状态，然后决定是否继续生成。
+ * 
+ * @param projectId 项目ID
+ * @param options 生成选项
+ * @returns 恢复状态结果
+ */
+export async function restoreAndContinueReferences(
+  projectId: string,
+  options: Omit<GenerateReferencesWithControllerOptions, 'onComplete'> & {
+    onComplete?: (result: GenerateAllImagesResult) => void;
+  } = {}
+) {
+  return restoreGenerationController(projectId, {
+    width: options.width,
+    height: options.height,
+    onProgress: options.onProgress,
+    onImageGenerated: options.onImageGenerated,
+    onStateChange: options.onStateChange,
+    onComplete: options.onComplete,
+    onError: options.onError,
+  });
+}
+
 /**
  * 批量并行生成角色和场景参考图
  */
@@ -517,7 +618,8 @@ export async function generateAllReferences(
     onProgress?: (progress: BatchGenerationProgress) => void;
   } = {}
 ): Promise<BatchGenerationResult> {
-  const { concurrency = 5, width, height, onProgress } = options;
+  // 不再硬编码并发数，让 imageService 根据供应商配置决定
+  const { width, height, onProgress } = options;
   
   const result: BatchGenerationResult = {
     success: false,
@@ -555,7 +657,7 @@ export async function generateAllReferences(
     projectId,
     characterPrompts.map(p => ({ id: p.id, prompt: p.prompt, name: p.name })),
     {
-      concurrency,
+      // 不传 concurrency，让 imageService 根据供应商配置决定
       width,
       height,
       onProgress: (progress) => {
@@ -607,7 +709,6 @@ export async function generateAllReferences(
     projectId,
     scenePrompts.map(p => ({ id: p.id, prompt: p.prompt, name: p.name })),
     {
-      concurrency,
       width,
       height,
       onProgress: (progress) => {
@@ -660,6 +761,10 @@ export async function generateAllReferences(
 
 /**
  * 批量并行生成关键帧图片
+ * 
+ * 关键帧依赖检查（Requirements 7.1, 7.2）：
+ * - 在生成前验证所有角色/场景参考图是否 completed
+ * - 如有未完成的参考图，阻止生成并返回明确错误
  */
 export async function generateAllKeyframes(
   projectId: string,
@@ -668,9 +773,12 @@ export async function generateAllKeyframes(
     width?: number;
     height?: number;
     onProgress?: (progress: BatchGenerationProgress) => void;
+    /** 是否跳过依赖检查（仅用于内部调用，UI 不应使用） */
+    skipDependencyCheck?: boolean;
   } = {}
 ): Promise<BatchGenerationResult> {
-  const { concurrency = 5, width, height, onProgress } = options;
+  // 不再硬编码并发数，让 imageService 根据供应商配置决定
+  const { width, height, onProgress, skipDependencyCheck = false } = options;
   
   const result: BatchGenerationResult = {
     success: false,
@@ -679,6 +787,18 @@ export async function generateAllKeyframes(
     failCount: 0,
     errors: [],
   };
+
+  // ===== 服务层兜底校验：关键帧依赖检查（Requirements 7.1, 7.2）=====
+  if (!skipDependencyCheck) {
+    const { canGenerateKeyframes } = await import('./generationController');
+    const dependencyCheck = await canGenerateKeyframes(projectId);
+    
+    if (!dependencyCheck.canGenerate) {
+      result.errors.push(dependencyCheck.message || '参考图未完成，无法生成关键帧');
+      console.warn('[generateAllKeyframes] Dependency check failed:', dependencyCheck);
+      return result;
+    }
+  }
 
   // 获取项目数据
   const project = await getProject(projectId);
@@ -775,7 +895,6 @@ export async function generateAllKeyframes(
       projectId,
       keyframeTasks,
       {
-        concurrency,
         width,
         height,
         onProgress: (progress) => {
@@ -822,7 +941,6 @@ export async function generateAllKeyframes(
       projectId,
       textOnlyTasks,
       {
-        concurrency,
         width,
         height,
         onProgress: (progress) => {
@@ -1118,6 +1236,22 @@ export async function generateNextImage(
 
   // 阶段3: 生成关键帧图片
   if (completedKeyframes < keyframePrompts.length) {
+    // ===== 服务层兜底校验：关键帧依赖检查（Requirements 7.1, 7.2）=====
+    const { canGenerateKeyframes } = await import('./generationController');
+    const dependencyCheck = await canGenerateKeyframes(projectId);
+    
+    if (!dependencyCheck.canGenerate) {
+      console.warn('[generateNextImage] Keyframe dependency check failed:', dependencyCheck);
+      return {
+        success: false,
+        phase: 'keyframes',
+        currentIndex: completedKeyframes,
+        totalInPhase: keyframePrompts.length,
+        isAllDone: false,
+        error: dependencyCheck.message || '参考图未完成，无法生成关键帧',
+      };
+    }
+
     const nextIndex = completedKeyframes;
     const kfPrompt = keyframePrompts[nextIndex];
     
