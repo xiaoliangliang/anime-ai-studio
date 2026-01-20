@@ -256,6 +256,83 @@ export function normalizeAspectRatio(
   return config.defaultAspectRatio;
 }
 
+// ===== 参数归一化工具函数 =====
+
+/**
+ * 归一化视频时长
+ * 根据供应商配置限制时长范围
+ * 
+ * @param duration 原始时长
+ * @param config 供应商配置
+ * @returns 归一化后的时长
+ */
+export function normalizeDuration(
+  duration: number | undefined,
+  config: VideoProviderConfig
+): number {
+  // 未定义时使用默认值
+  if (duration === undefined || duration === null) {
+    console.log(`[参数归一化] duration 未定义，使用默认值: ${config.defaultDuration}`);
+    return config.defaultDuration;
+  }
+  
+  // 限制到有效范围
+  if (duration < config.minDuration) {
+    console.log(`[参数归一化] duration ${duration} 小于最小值，限制为: ${config.minDuration}`);
+    return config.minDuration;
+  }
+  
+  if (duration > config.maxDuration) {
+    console.log(`[参数归一化] duration ${duration} 大于最大值，限制为: ${config.maxDuration}`);
+    return config.maxDuration;
+  }
+  
+  return duration;
+}
+
+/**
+ * 归一化宽高比
+ * 对于 Pollinations，仅支持 16:9 和 9:16，其他比例自动映射
+ * 
+ * 映射规则（确定性）：
+ * - 9:16 或 3:4 → 9:16（竖屏）
+ * - 其他所有（16:9, 4:3, 1:1, 21:9）→ 16:9（横屏）
+ * 
+ * @param ratio 原始宽高比
+ * @param config 供应商配置
+ * @returns 归一化后的宽高比
+ */
+export function normalizeAspectRatio(
+  ratio: string | undefined,
+  config: VideoProviderConfig
+): string {
+  // 未定义时使用默认值
+  if (!ratio) {
+    return config.defaultAspectRatio;
+  }
+  
+  // 如果供应商支持该比例，直接返回
+  if (config.supportedAspectRatios.includes(ratio)) {
+    return ratio;
+  }
+  
+  // Pollinations 特殊处理：仅支持 16:9 和 9:16
+  if (config.id === 'pollinations') {
+    // 竖屏比例映射到 9:16
+    if (ratio === '9:16' || ratio === '3:4') {
+      console.log(`[参数归一化] ratio ${ratio} 映射为 9:16（Pollinations 竖屏）`);
+      return '9:16';
+    }
+    // 其他所有比例映射到 16:9
+    console.log(`[参数归一化] ratio ${ratio} 映射为 16:9（Pollinations 横屏）`);
+    return '16:9';
+  }
+  
+  // 其他供应商：使用默认值
+  console.log(`[参数归一化] ratio ${ratio} 不支持，使用默认值: ${config.defaultAspectRatio}`);
+  return config.defaultAspectRatio;
+}
+
 // ===== 核心功能 =====
 
 /**
