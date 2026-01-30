@@ -25,6 +25,8 @@ export interface ChatOptions {
   maxRetries?: number;         // 最大重试次数
   contextData?: unknown;       // 上下文数据
   onProgress?: (content: string) => void; // 流式响应进度回调
+  onPhase?: (payload: { stage: ProjectStage; phase: string; label?: string }) => void; // 阶段提示回调
+  onPartialData?: (data: unknown) => void; // 部分结构化数据回调
 }
 
 /** OpenAI 兼容的聊天完成响应 */

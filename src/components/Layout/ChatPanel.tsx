@@ -69,11 +69,7 @@ function hasStageOutput(project: Project | null, stageId: ProjectStage): boolean
       return hasEpisodesShots || hasDirectShots
     }
     case 'imageDesigner':
-      return !!(
-        project.imageDesigner?.characterPrompts?.length ||
-        project.imageDesigner?.scenePrompts?.length ||
-        project.imageDesigner?.keyframePrompts?.length
-      )
+      return !!project.imageDesigner?.keyframePrompts?.length
     default:
       return false
   }
@@ -178,6 +174,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
   const [showStartSendGuide, setShowStartSendGuide] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [phaseHint, setPhaseHint] = useState<string | null>(null)
   const [selectedModel] = useState(DEFAULT_TEXT_MODEL)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
@@ -563,6 +560,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
     setInput('')
     setIsLoading(true)
     setError(null)
+    setPhaseHint(null)
 
     try {
       // 转换为 API 所需的 Message 格式
@@ -586,7 +584,19 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
         messageContent,
         stage,
         historyMessages,
-        { maxRetries, model: selectedModel, contextData }
+        {
+          maxRetries,
+          model: selectedModel,
+          contextData,
+          onPhase: ({ label }) => {
+            if (label) setPhaseHint(label)
+          },
+          onPartialData: (partial) => {
+            if (partial && onDataGenerated) {
+              onDataGenerated(partial)
+            }
+          },
+        }
       )
 
       if (response.success && response.message) {
@@ -631,6 +641,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
     } finally {
       sendLockRef.current = false
       setIsLoading(false)
+      setPhaseHint(null)
     }
   }, [messages, stage, getContextData, selectedModel, saveChatHistory, onDataGenerated])
 
@@ -1221,7 +1232,7 @@ export default function ChatPanel({ projectId, stage, onDataGenerated, autoStart
             <div className="message-avatar">{config.icon}</div>
             <div className="message-content loading-shimmer">
               <TextShimmer duration={1.5}>
-                {STAGE_LOADING_TEXT[stage]}
+                {phaseHint || STAGE_LOADING_TEXT[stage]}
               </TextShimmer>
             </div>
           </div>

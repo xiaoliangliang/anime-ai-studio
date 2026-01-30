@@ -49,6 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     max_tokens = 8192,
     temperature = 1,
     stream = false,
+    response_format,
   } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
@@ -72,6 +73,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     max_tokens,
     temperature,
     stream,
+    ...(response_format ? { response_format } : {}),
   };
 
   try {

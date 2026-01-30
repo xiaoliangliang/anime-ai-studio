@@ -42,11 +42,7 @@ function isStageCompleted(project: Project | null, stageId: ProjectStage): boole
       return !!(project.storyboard?.episodes?.some(ep => ep.shots?.length > 0))
     case 'imageDesigner':
       // 设计阶段：有角色/场景/关键帧提示词
-      return !!(
-        project.imageDesigner?.characterPrompts?.length ||
-        project.imageDesigner?.scenePrompts?.length ||
-        project.imageDesigner?.keyframePrompts?.length
-      )
+      return !!project.imageDesigner?.keyframePrompts?.length
     case 'artist':
       // 美工阶段：只有关键帧图片生成完成才算完成
       return !!(project.artist?.keyframeImages?.some(img => img.status === 'completed'))
