@@ -44,6 +44,17 @@ coverage/
 *.local
 .vercel
 
+# Non-code artifacts (do not publish)
+*.pptx
+*.pdf
+hackathon-*.md
+create_arch*.py
+create_*ppt.py
+image copy*.png
+/image.png
+/DramaAI技术架构图.md
+/技术架构图.png
+
 # Private key material
 *.pem
 *.key
