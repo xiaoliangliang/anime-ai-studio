@@ -64,9 +64,22 @@ npm run build
 
 ## API 配置
 
-项目使用 Pollinations API,API Key 已配置在 `src/services/pollinations.ts` 中。
+请使用环境变量配置 API Key，不要把密钥写入代码：
 
-如需更改配置,请修改该文件中的 `API_KEY` 常量。
+- `VITE_POLLINATIONS_API_KEY`（前端 publishable key，可选）
+- `POLLINATIONS_API_KEY`（服务端 key）
+- `RUNCOMFY_API_TOKEN`（服务端）
+- `IMGBB_API_KEY`（服务端）
+
+示例（PowerShell）：
+
+```powershell
+$env:VITE_POLLINATIONS_API_KEY="your_publishable_key"
+$env:POLLINATIONS_API_KEY="your_server_key"
+$env:RUNCOMFY_API_TOKEN="your_runcomfy_token"
+$env:IMGBB_API_KEY="your_imgbb_key"
+pnpm start
+```
 
 ## 项目结构
 

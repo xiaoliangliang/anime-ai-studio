@@ -5,12 +5,19 @@ const app = express();
 const PORT = 3001;
 
 // Pollinations API 配置
-const POLLINATIONS_API_KEY = 'plln_pk_7Tqtux7EhEq450ERY8M8QEDVfaqjO6Lo';
+const POLLINATIONS_API_KEY = process.env.POLLINATIONS_API_KEY || process.env.VITE_POLLINATIONS_API_KEY || '';
 const POLLINATIONS_API_BASE = 'https://gen.pollinations.ai';
 
 // RunComfy API 配置 (Seedance 1.0 图生视频)
-const RUNCOMFY_API_KEY = '5037e506-cae6-446e-81e0-a49c501a34ea';
+const RUNCOMFY_API_KEY = process.env.RUNCOMFY_API_TOKEN || '';
 const RUNCOMFY_API_BASE = 'https://model-api.runcomfy.net/v1';
+const IMGBB_API_KEY = process.env.IMGBB_API_KEY || '';
+
+function requireServerSecret(res, value, envName) {
+  if (value) return true;
+  res.status(500).json({ error: `服务端未配置 ${envName}` });
+  return false;
+}
 
 // 中间件
 app.use(cors());
@@ -18,6 +25,8 @@ app.use(express.json({ limit: '50mb' }));
 
 // 图生图 API 代理 (支持多图输入)
 app.get('/api/img2img', async (req, res) => {
+  if (!requireServerSecret(res, POLLINATIONS_API_KEY, 'POLLINATIONS_API_KEY')) return;
+
   const {
     prompt,
     imageUrl,      // 单图: 一个URL; 多图: 逗号分隔的多个URL
@@ -64,7 +73,7 @@ app.get('/api/img2img', async (req, res) => {
 
   const apiUrl = `${POLLINATIONS_API_BASE}/image/${encodeURIComponent(prompt)}?${params.toString()}`;
 
-  console.log('图生图请求:', apiUrl);
+  console.log('图生图请求已接收');
 
   try {
     const response = await fetch(apiUrl, {
@@ -110,6 +119,8 @@ app.get('/api/img2img', async (req, res) => {
 
 // 文生图 API 代理
 app.get('/api/txt2img', async (req, res) => {
+  if (!requireServerSecret(res, POLLINATIONS_API_KEY, 'POLLINATIONS_API_KEY')) return;
+
   const { prompt, width = 1024, height = 1024, seed, model = 'flux', enhance = 'true', nologo = 'true' } = req.query;
 
   if (!prompt) {
@@ -127,7 +138,7 @@ app.get('/api/txt2img', async (req, res) => {
 
   const apiUrl = `${POLLINATIONS_API_BASE}/image/${encodeURIComponent(prompt)}?${params.toString()}`;
 
-  console.log('文生图请求:', apiUrl);
+  console.log('文生图请求已接收');
 
   try {
     const response = await fetch(apiUrl, {
@@ -171,6 +182,8 @@ app.get('/api/txt2img', async (req, res) => {
 
 // 图生视频 API 代理 (使用 seedance 模型)
 app.get('/api/img2video', async (req, res) => {
+  if (!requireServerSecret(res, POLLINATIONS_API_KEY, 'POLLINATIONS_API_KEY')) return;
+
   const {
     prompt,
     imageUrl,
@@ -197,7 +210,7 @@ app.get('/api/img2video', async (req, res) => {
 
   const apiUrl = `${POLLINATIONS_API_BASE}/image/${encodeURIComponent(prompt)}?${params.toString()}`;
 
-  console.log('图生视频请求:', apiUrl);
+  console.log('图生视频请求已接收');
 
   try {
     // 视频生成可能需要很长时间，不设置超时
@@ -247,7 +260,7 @@ app.get('/api/img2video', async (req, res) => {
 
 // imgbb 图床上传代理
 app.post('/api/imgbb/upload', express.urlencoded({ extended: true, limit: '50mb' }), async (req, res) => {
-  const IMGBB_API_KEY = '416bd0e1247069324458a42ccd408ae4';
+  if (!requireServerSecret(res, IMGBB_API_KEY, 'IMGBB_API_KEY')) return;
 
   try {
     const { image } = req.body;
@@ -281,6 +294,8 @@ app.post('/api/imgbb/upload', express.urlencoded({ extended: true, limit: '50mb'
  * API 文档: https://www.runcomfy.com/playground/bytedance/seedance-1-0/api
  */
 app.post('/api/runcomfy/img2video', async (req, res) => {
+  if (!requireServerSecret(res, RUNCOMFY_API_KEY, 'RUNCOMFY_API_TOKEN')) return;
+
   const {
     prompt,
     imageUrl,
@@ -398,6 +413,8 @@ app.post('/api/runcomfy/img2video', async (req, res) => {
  * RunComfy 任务状态查询 (供前端主动查询)
  */
 app.get('/api/runcomfy/status/:requestId', async (req, res) => {
+  if (!requireServerSecret(res, RUNCOMFY_API_KEY, 'RUNCOMFY_API_TOKEN')) return;
+
   const { requestId } = req.params;
 
   try {
@@ -426,6 +443,8 @@ app.get('/api/runcomfy/status/:requestId', async (req, res) => {
  * RunComfy 任务结果获取
  */
 app.get('/api/runcomfy/result/:requestId', async (req, res) => {
+  if (!requireServerSecret(res, RUNCOMFY_API_KEY, 'RUNCOMFY_API_TOKEN')) return;
+
   const { requestId } = req.params;
 
   try {

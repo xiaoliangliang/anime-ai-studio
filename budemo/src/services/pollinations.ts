@@ -1,6 +1,6 @@
 // Pollinations API 服务
 
-const API_KEY = 'plln_pk_7Tqtux7EhEq450ERY8M8QEDVfaqjO6Lo';
+const API_KEY = import.meta.env.VITE_POLLINATIONS_API_KEY || '';
 const IMAGE_API_BASE = 'https://image.pollinations.ai/prompt';
 
 export interface ImageGenerationOptions {
@@ -106,8 +106,12 @@ export async function generateImage(options: ImageGenerationOptions): Promise<st
     model,
     enhance: enhance.toString(),
     nologo: nologo.toString(),
-    key: API_KEY, // 使用 query 参数方式传递 API key（避免 CORS 问题）
   });
+
+  // 使用 query 参数方式传递 API key（可选）
+  if (API_KEY) {
+    params.set('key', API_KEY);
+  }
 
   const url = `${IMAGE_API_BASE}/${encodeURIComponent(prompt)}?${params.toString()}`;
 
@@ -209,21 +213,6 @@ export async function convertToDataUrl(imageUrl: string): Promise<string> {
  * 返回公开的图片 URL
  */
 export async function uploadImageToHost(dataUrl: string): Promise<string> {
-  // ⚠️ 需要配置 imgbb API Key 才能使用图生图功能
-  // 获取免费 API Key: https://api.imgbb.com/
-  // 1. 访问 https://api.imgbb.com/
-  // 2. 登录或注册账号
-  // 3. 复制 API Key 并替换下面的值
-  const IMGBB_API_KEY = '416bd0e1247069324458a42ccd408ae4'; // 👈 请在此处填入您的 imgbb API Key
-
-  if (!IMGBB_API_KEY) {
-    throw new Error(
-      '未配置 imgbb API Key!\n' +
-      '请访问 https://api.imgbb.com/ 获取免费 API Key,\n' +
-      '然后在 src/services/pollinations.ts 中配置 IMGBB_API_KEY'
-    );
-  }
-
   try {
     // 打印接收到的URL用于调试
     console.log('接收到的图片URL前100个字符:', dataUrl.substring(0, 100));

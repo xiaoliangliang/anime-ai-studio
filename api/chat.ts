@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { debugLog, enforceAllowedOrigins, requireServerEnv } from './_lib/security';
 
 // Pollinations API 配置
 const POLLINATIONS_API_URL = 'https://gen.pollinations.ai/v1/chat/completions';
@@ -21,7 +22,7 @@ function extractPureJSON(text: string): string {
   // 尝试从 markdown 代码块提取
   const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (codeBlockMatch) {
-    console.log('[后端] 从代码块提取 JSON');
+    debugLog('[后端] 从代码块提取 JSON');
     return codeBlockMatch[1].trim();
   }
 
@@ -31,7 +32,7 @@ function extractPureJSON(text: string): string {
   
   if (firstBrace !== -1 && lastBrace > firstBrace) {
     const extracted = text.slice(firstBrace, lastBrace + 1);
-    console.log('[后端] 提取 JSON, 从位置', firstBrace, '到', lastBrace);
+    debugLog('[后端] 提取 JSON, 从位置', firstBrace, '到', lastBrace);
     return extracted;
   }
 
@@ -41,6 +42,14 @@ function extractPureJSON(text: string): string {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  if (!enforceAllowedOrigins(req, res)) {
+    return;
+  }
+
+  if (!requireServerEnv(res, 'POLLINATIONS_API_KEY', POLLINATIONS_API_KEY)) {
+    return;
   }
 
   const {
@@ -56,7 +65,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: '缺少必要参数: messages 数组' });
   }
 
-  console.log('Chat 请求:', { messageCount: messages.length, model, stream });
+  if (messages.length > 50) {
+    return res.status(400).json({ error: 'messages 数量不能超过 50' });
+  }
+
+  const totalChars = messages.reduce((sum, msg) => {
+    const content = typeof msg?.content === 'string' ? msg.content : '';
+    return sum + content.length;
+  }, 0);
+
+  if (totalChars > 200_000) {
+    return res.status(400).json({ error: 'messages 内容过长' });
+  }
+
+  const parsedMaxTokens = Number(max_tokens);
+  const parsedTemperature = Number(temperature);
+  const safeMaxTokens = Number.isFinite(parsedMaxTokens)
+    ? Math.max(1, Math.min(24_000, parsedMaxTokens))
+    : 8_192;
+  const safeTemperature = Number.isFinite(parsedTemperature)
+    ? Math.max(0, Math.min(2, parsedTemperature))
+    : 1;
+
+  debugLog('Chat 请求:', { messageCount: messages.length, model, stream });
 
   // 构建请求头
   const headers: Record<string, string> = {
@@ -70,17 +101,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const requestBody = {
     model,
     messages,
-    max_tokens,
-    temperature,
+    max_tokens: safeMaxTokens,
+    temperature: safeTemperature,
     stream,
     ...(response_format ? { response_format } : {}),
   };
 
   try {
-    console.log('Pollinations 请求:', {
+    debugLog('Pollinations 请求:', {
       model,
       messageCount: messages.length,
-      max_tokens,
+      max_tokens: safeMaxTokens,
       stream,
     });
 
@@ -92,10 +123,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Pollinations API 错误:', response.status, errorText);
+      debugLog('Pollinations API 错误:', response.status, errorText.slice(0, 500));
       return res.status(response.status).json({
         error: 'Pollinations API 请求失败',
-        details: errorText,
+        upstreamStatus: response.status,
       });
     }
 
@@ -136,9 +167,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           res.write(buffer + '\n');
         }
 
-        console.log('[chat] 流式响应完成');
+        debugLog('[chat] 流式响应完成');
       } catch (streamError) {
-        console.error('[chat] 流式传输错误:', streamError);
+        console.error('[chat] 流式传输错误');
         const errorData = JSON.stringify({
           id: `pollinations-${Date.now()}`,
           object: 'chat.completion.chunk',
@@ -161,8 +192,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const data = await response.json();
     let content = data.choices?.[0]?.message?.content || '';
 
-    console.log('Pollinations 响应成功，原始内容长度:', content.length);
-    console.log('Pollinations 原始内容前300字符:', content.substring(0, 300));
+    debugLog('Pollinations 响应成功，原始内容长度:', content.length);
 
     // 尝试提取纯 JSON（如果 AI 在 JSON 前后添加了文字）
     content = extractPureJSON(content);
@@ -193,10 +223,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.json(responseData);
 
   } catch (error) {
-    console.error('Pollinations API 请求失败:', error);
+    console.error('Pollinations API 请求失败');
     res.status(500).json({
       error: 'Pollinations API 请求失败',
-      details: error instanceof Error ? error.message : 'Unknown error',
+      message: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 }

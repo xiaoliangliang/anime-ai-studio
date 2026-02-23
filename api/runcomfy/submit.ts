@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { debugLog, enforceAllowedOrigins, requireServerEnv } from '../_lib/security';
 
 const RUNCOMFY_API_TOKEN = process.env.RUNCOMFY_API_TOKEN || '';
 const RUNCOMFY_API_BASE = 'https://model-api.runcomfy.net/v1';
@@ -18,13 +19,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  if (!enforceAllowedOrigins(req, res)) {
+    return;
+  }
+
+  if (!requireServerEnv(res, 'RUNCOMFY_API_TOKEN', RUNCOMFY_API_TOKEN)) {
+    return;
+  }
+
   const { type, ...params } = req.body;
 
   if (!type) {
     return res.status(400).json({ error: '缺少必要参数: type' });
   }
 
-  console.log(`[RunComfy Submit] 任务类型: ${type}`, params);
+  debugLog(`[RunComfy Submit] 任务类型: ${type}`);
 
   try {
     let apiEndpoint: string;
@@ -37,6 +46,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!prompt) {
           return res.status(400).json({ error: '缺少必要参数: prompt' });
         }
+        if (String(prompt).length > 2_000) {
+          return res.status(400).json({ error: 'prompt 过长，最大 2000 字符' });
+        }
         apiEndpoint = `${RUNCOMFY_API_BASE}/models/bytedance/seedream-4-5/text-to-image`;
         requestBody = { prompt, resolution };
         break;
@@ -47,6 +59,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const { prompt: editPrompt, images, resolution: editResolution = '2048x2048 (1:1)' } = params;
         if (!editPrompt || !images || !Array.isArray(images) || images.length === 0) {
           return res.status(400).json({ error: '缺少必要参数: prompt 和 images 数组' });
+        }
+        if (String(editPrompt).length > 2_000) {
+          return res.status(400).json({ error: 'prompt 过长，最大 2000 字符' });
+        }
+        if (images.length > 4) {
+          return res.status(400).json({ error: 'images 数量不能超过 4' });
         }
         apiEndpoint = `${RUNCOMFY_API_BASE}/models/bytedance/seedream-4-5/edit`;
         requestBody = { prompt: editPrompt, images, resolution: editResolution };
@@ -69,16 +87,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!text) {
           return res.status(400).json({ error: '缺少必要参数: text (提示词)' });
         }
+        if (String(text).length > 2_000) {
+          return res.status(400).json({ error: 'text 过长，最大 2000 字符' });
+        }
+        for (const url of videoImages) {
+          try {
+            const parsed = new URL(String(url));
+            if (!['http:', 'https:'].includes(parsed.protocol)) {
+              return res.status(400).json({ error: 'images 必须是 http/https URL' });
+            }
+          } catch {
+            return res.status(400).json({ error: 'images 中存在非法 URL' });
+          }
+        }
         apiEndpoint = `${RUNCOMFY_API_BASE}/models/bytedance/seedance-1-0/lite/reference-to-video`;
+        const parsedDuration = Number.parseInt(String(duration), 10);
         requestBody = {
           images: videoImages,
           text,
           resolution: videoResolution,
           ratio,
-          duration: parseInt(String(duration)),
+          duration: Number.isFinite(parsedDuration) ? Math.min(12, Math.max(2, parsedDuration)) : 5,
         };
         if (seed) {
-          requestBody.seed = parseInt(String(seed));
+          const parsedSeed = Number.parseInt(String(seed), 10);
+          if (Number.isFinite(parsedSeed)) {
+            requestBody.seed = parsedSeed;
+          }
         }
         break;
       }
@@ -87,7 +122,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: `不支持的任务类型: ${type}` });
     }
 
-    console.log(`[RunComfy Submit] 请求端点: ${apiEndpoint}`);
+    debugLog(`[RunComfy Submit] 请求端点: ${apiEndpoint}`);
 
     // 提交任务到 RunComfy
     const submitResponse = await fetch(apiEndpoint, {
@@ -101,10 +136,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!submitResponse.ok) {
       const errorText = await submitResponse.text();
-      console.error('[RunComfy Submit] 提交失败:', errorText);
+      debugLog('[RunComfy Submit] 提交失败:', errorText.slice(0, 500));
       return res.status(submitResponse.status).json({
         error: 'RunComfy API 提交任务失败',
-        details: errorText
+        upstreamStatus: submitResponse.status,
       });
     }
 
@@ -112,11 +147,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const requestId = submitResult.request_id;
 
     if (!requestId) {
-      console.error('[RunComfy Submit] 未返回 request_id:', submitResult);
-      return res.status(500).json({ error: '未获取到任务ID', details: submitResult });
+      console.error('[RunComfy Submit] 未返回 request_id');
+      return res.status(500).json({ error: '未获取到任务ID' });
     }
 
-    console.log(`[RunComfy Submit] 任务提交成功, requestId: ${requestId}`);
+    debugLog(`[RunComfy Submit] 任务提交成功, requestId: ${requestId}`);
 
     // 立即返回 requestId，不等待任务完成
     res.json({
@@ -127,10 +162,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
   } catch (error) {
-    console.error('[RunComfy Submit] 请求失败:', error);
+    console.error('[RunComfy Submit] 请求失败');
     res.status(500).json({
       error: '提交任务失败',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 }

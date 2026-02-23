@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { debugLog, enforceAllowedOrigins, requireServerEnv } from '../_lib/security';
 
 const RUNCOMFY_API_TOKEN = process.env.RUNCOMFY_API_TOKEN || '';
 const RUNCOMFY_API_BASE = 'https://model-api.runcomfy.net/v1';
@@ -22,16 +23,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  if (!enforceAllowedOrigins(req, res)) {
+    return;
+  }
+
+  if (!requireServerEnv(res, 'RUNCOMFY_API_TOKEN', RUNCOMFY_API_TOKEN)) {
+    return;
+  }
+
   const { requestId, type } = req.query;
 
   if (!requestId) {
     return res.status(400).json({ error: '缺少必要参数: requestId' });
   }
 
+  const requestIdText = String(requestId);
+  if (!/^[A-Za-z0-9_-]{6,120}$/.test(requestIdText)) {
+    return res.status(400).json({ error: 'requestId 格式非法' });
+  }
+
   try {
     // 第一步：查询任务状态
     const statusResponse = await fetch(
-      `${RUNCOMFY_API_BASE}/requests/${requestId}/status`,
+      `${RUNCOMFY_API_BASE}/requests/${requestIdText}/status`,
       {
         method: 'GET',
         headers: {
@@ -42,10 +56,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!statusResponse.ok) {
       const errorText = await statusResponse.text();
-      console.error('[RunComfy Status] 查询状态失败:', errorText);
+      debugLog('[RunComfy Status] 查询状态失败:', errorText.slice(0, 500));
       return res.status(statusResponse.status).json({
         error: '查询任务状态失败',
-        details: errorText
+        upstreamStatus: statusResponse.status,
       });
     }
 
@@ -75,7 +89,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 构建响应
     const response: Record<string, unknown> = {
-      requestId,
+      requestId: requestIdText,
       status: taskStatus,
       rawStatus: statusResult.status,
     };
@@ -83,7 +97,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 第二步：只有任务完成时才查询结果
     if (taskStatus === 'completed') {
       const resultResponse = await fetch(
-        `${RUNCOMFY_API_BASE}/requests/${requestId}/result`,
+        `${RUNCOMFY_API_BASE}/requests/${requestIdText}/result`,
         {
           method: 'GET',
           headers: {
@@ -115,7 +129,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           response.result = { output };
         }
       } else {
-        console.error('[RunComfy Status] 获取结果失败');
+        debugLog('[RunComfy Status] 获取结果失败');
       }
     }
 
@@ -127,10 +141,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.json(response);
 
   } catch (error) {
-    console.error('[RunComfy Status] 请求失败:', error);
+    console.error('[RunComfy Status] 请求失败');
     res.status(500).json({
       error: '查询状态失败',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 }

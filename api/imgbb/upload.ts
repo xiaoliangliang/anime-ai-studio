@@ -1,10 +1,20 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { debugLog, enforceAllowedOrigins, requireServerEnv } from '../_lib/security';
 
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY || '';
+const MAX_BASE64_LENGTH = 45_000_000; // ~32MB 二进制
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  if (!enforceAllowedOrigins(req, res)) {
+    return;
+  }
+
+  if (!requireServerEnv(res, 'IMGBB_API_KEY', IMGBB_API_KEY)) {
+    return;
   }
 
   try {
@@ -42,11 +52,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 基本验证：检查是否有足够的数据
     if (image.length < 100) {
-      console.error('图片数据太小，长度:', image.length);
+      debugLog('图片数据太小，长度:', image.length);
       return res.status(400).json({ error: '图片数据太小' });
     }
 
-    console.log('imgbb 上传请求，base64 长度:', image.length, '前20字符:', image.substring(0, 20));
+    if (image.length > MAX_BASE64_LENGTH) {
+      return res.status(413).json({ error: '图片数据过大，超过 imgbb 限制' });
+    }
+
+    debugLog('imgbb 上传请求，base64 长度:', image.length);
 
     const formData = new URLSearchParams();
     formData.append('image', image);
@@ -59,18 +73,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const result = await response.json();
     
     if (!result.success) {
-      console.error('imgbb 上传失败:', result);
-      return res.status(500).json({ error: 'imgbb 上传失败', details: result });
+      debugLog('imgbb 上传失败:', result);
+      return res.status(500).json({ error: 'imgbb 上传失败' });
     }
 
-    console.log('imgbb 上传成功:', result.data?.url);
+    debugLog('imgbb 上传成功');
     res.json(result);
 
   } catch (error) {
-    console.error('imgbb 上传失败:', error);
+    console.error('imgbb 上传失败');
     res.status(500).json({ 
       error: '上传失败', 
-      details: error instanceof Error ? error.message : 'Unknown error'
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 }

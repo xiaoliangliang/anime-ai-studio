@@ -10,6 +10,8 @@ build/
 .env
 .env.local
 .env.*.local
+.env.*
+!.env.example
 
 # Editor directories and files
 .vscode/*
@@ -41,3 +43,8 @@ coverage/
 # Misc
 *.local
 .vercel
+
+# Private key material
+*.pem
+*.key
+*.p12

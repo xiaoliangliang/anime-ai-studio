@@ -4,7 +4,7 @@ import fetch from 'node-fetch';
 import cors from 'cors';
 
 // 服务端 API 密钥
-const POLLINATIONS_API_KEY = 'plln_sk_1GU5q767QKt4OVc7jOc2XUrM5LLF2Fxd';
+const POLLINATIONS_API_KEY = process.env.POLLINATIONS_API_KEY || process.env.VITE_POLLINATIONS_API_KEY || '';
 
 const app = express();
 app.use(cors());
@@ -13,6 +13,10 @@ app.use(express.json());
 // 代理图生图请求
 app.get('/api/img2img', async (req, res) => {
   try {
+    if (!POLLINATIONS_API_KEY) {
+      return res.status(500).json({ error: '服务端未配置 POLLINATIONS_API_KEY' });
+    }
+
     const { prompt, imageUrl } = req.query;
 
     if (!prompt || !imageUrl) {
@@ -24,8 +28,7 @@ app.get('/api/img2img', async (req, res) => {
     // 使用 nanobanana-pro 模型: Gemini 3 Pro Image (4K + Thinking, 比 kontext 便宜 330 倍)
     const url = `https://gen.pollinations.ai/image/${encodeURIComponent(prompt)}?model=nanobanana-pro&image=${imageUrl}`;
 
-    console.log('代理请求:', url);
-    console.log('使用服务端 API 密钥:', POLLINATIONS_API_KEY.substring(0, 15) + '...');
+    console.log('图生图代理请求已接收');
 
     // 设置5分钟超时
     const controller = new AbortController();
@@ -81,5 +84,4 @@ const PORT = 3001;
 app.listen(PORT, () => {
   console.log(`代理服务器运行在 http://localhost:${PORT}`);
   console.log(`图生图端点: http://localhost:${PORT}/api/img2img?prompt=YOUR_PROMPT&imageUrl=IMAGE_URL`);
-  console.log(`使用服务端 API 密钥: ${POLLINATIONS_API_KEY.substring(0, 15)}...`);
 });
