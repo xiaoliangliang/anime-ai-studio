@@ -51,19 +51,6 @@ Anime AI Studio 是一个面向 AI 漫剧创作的全流程生产平台。
 5. 外部 AI 能力层  
    对接文本、图像、视频生成服务，完成核心生成能力。
 
-## 开源前必做安全操作
-
-1. 立即轮换你已使用过的密钥（尤其是曾出现在本地 `.env` 或历史代码中的）：
-   - `POLLINATIONS_API_KEY`
-   - `RUNCOMFY_API_TOKEN`
-   - `IMGBB_API_KEY`
-   - 以及你已使用过的其他第三方 Token（如 `REPLICATE_API_TOKEN`）
-2. 确认 `.env` 不会被提交（本仓库已忽略）。
-3. 提交前执行：
-   ```bash
-   pnpm security:scan
-   ```
-
 ## 第一步：申请 API Key
 
 1. Pollinations（文本/图像/视频）
