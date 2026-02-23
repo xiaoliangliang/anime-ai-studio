@@ -54,6 +54,9 @@ image copy*.png
 /image.png
 /DramaAI技术架构图.md
 /技术架构图.png
+/编剧系统提示词.md
+/分镜师系统提示词.md
+/图像设计师.md
 
 # Private key material
 *.pem
