@@ -1,6 +1,6 @@
 # Anime AI Studio -AI漫剧创作坊
 
-AI 短剧一站式创作平台（编剧 -> 分镜 -> 图像设计 -> 美工 -> 导演）。
+AI 漫剧一站式创作平台（编剧 -> 分镜 -> 图像设计 -> 美工 -> 导演）。
 
 本项目可直接部署到 Vercel（前端 + Serverless Functions）。
 
