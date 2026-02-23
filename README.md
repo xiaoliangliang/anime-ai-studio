@@ -1,4 +1,4 @@
-# Anime AI Studio
+# Anime AI Studio -AI漫剧创作坊
 
 AI 短剧一站式创作平台（编剧 -> 分镜 -> 图像设计 -> 美工 -> 导演）。
 
