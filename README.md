@@ -1,6 +1,25 @@
 # Anime AI Studio -AI漫剧创作坊
 
 AI 漫剧一站式创作平台（编剧 -> 分镜 -> 图像设计 -> 美工 -> 导演）。
+编剧（根据一句话创意生成剧本大纲）
+<img width="2559" height="1253" alt="da82fa96594cf7284976e679c12f608a" src="https://github.com/user-attachments/assets/16f2b5e8-0d71-4729-aff0-79074c5b4674" />
+
+分镜师（根据剧本大纲生成每集的分镜内容）
+<img width="2559" height="1275" alt="分镜师" src="https://github.com/user-attachments/assets/8a5c0a45-2831-41bf-a07b-38a45db238ca" />
+
+
+图像设计师（根据分镜内容生成角色、场景和关键帧的生图提示词）
+<img width="2559" height="1257" alt="f9e20bf9a3ea8548c1f9c832996374a8" src="https://github.com/user-attachments/assets/9a169e65-0f5a-4e00-8d0c-0fe02b64444a" />
+
+
+美工（生成角色图、场景图和关键帧）
+<img width="2559" height="1260" alt="美工1" src="https://github.com/user-attachments/assets/76d4fcf2-f20b-4cfa-b364-bd9d8aaab7f0" />
+
+导演（根据关键帧和分镜提示词生成分镜视频）
+<img width="2559" height="1266" alt="导演1" src="https://github.com/user-attachments/assets/05edef13-cd02-4eb6-821e-32dc74ca0b59" />
+
+
+
 
 本项目可直接部署到 Vercel（前端 + Serverless Functions）。
 
