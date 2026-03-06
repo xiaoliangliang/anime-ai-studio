@@ -1,6 +1,7 @@
 # Anime AI Studio -AI漫剧创作坊
 
 AI 漫剧一站式创作平台（编剧 -> 分镜 -> 图像设计 -> 美工 -> 导演）。
+
 编剧（根据一句话创意生成剧本大纲）
 <img width="2559" height="1253" alt="da82fa96594cf7284976e679c12f608a" src="https://github.com/user-attachments/assets/16f2b5e8-0d71-4729-aff0-79074c5b4674" />
 
